@@ -1,0 +1,26 @@
+from app.config import users_config
+
+
+def _users() -> dict:
+    config = users_config()
+    return config.get("users", config)
+
+
+def get_user(user_id: str) -> dict:
+    return _users().get(user_id, {})
+
+
+def user_roles(user_id: str) -> set[str]:
+    return set(get_user(user_id).get("roles", []))
+
+
+def has_any_role(user_id: str, allowed_roles: list[str]) -> bool:
+    return bool(user_roles(user_id) & set(allowed_roles))
+
+
+def has_role(user_id: str, role: str) -> bool:
+    return role in user_roles(user_id)
+
+
+def can_create_bug(user_id: str) -> bool:
+    return has_role(user_id, "qa") or has_role(user_id, "admin")

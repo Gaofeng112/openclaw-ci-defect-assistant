@@ -1,0 +1,13 @@
+required_fields:
+  - title
+  - description
+  - severity
+  - module
+  - reproduce_steps
+
+field_mapping:
+  title: "content"
+  description: "description"
+  severity: "priority"
+  module: "custom_module"
+  reproduce_steps: "custom_reproduce_steps"

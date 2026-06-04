@@ -1,0 +1,14 @@
+u001:
+  name: "张三"
+  roles:
+    - qa
+
+u002:
+  name: "李四"
+  roles:
+    - dev
+
+admin001:
+  name: "管理员"
+  roles:
+    - admin

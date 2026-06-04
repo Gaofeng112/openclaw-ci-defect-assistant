@@ -1,0 +1,24 @@
+smoke:
+  job_path: "QA/smoke-test"
+  allowed_envs:
+    - test
+    - pre
+  required_params:
+    - env
+    - branch
+  allowed_roles:
+    - qa
+    - admin
+  confirm_required: true
+
+regression:
+  job_path: "QA/regression-test"
+  allowed_envs:
+    - test
+  required_params:
+    - env
+    - branch
+  allowed_roles:
+    - qa
+    - admin
+  confirm_required: true
