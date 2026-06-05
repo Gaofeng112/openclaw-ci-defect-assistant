@@ -1,5 +1,5 @@
-smoke:
-  job_path: "QA/smoke-test"
+ci_test:
+  job_path: "openclaw-ci-test"
   allowed_envs:
     - test
     - pre
@@ -11,14 +11,3 @@ smoke:
     - admin
   confirm_required: true
 
-regression:
-  job_path: "QA/regression-test"
-  allowed_envs:
-    - test
-  required_params:
-    - env
-    - branch
-  allowed_roles:
-    - qa
-    - admin
-  confirm_required: true

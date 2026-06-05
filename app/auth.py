@@ -18,6 +18,10 @@ def has_any_role(user_id: str, allowed_roles: list[str]) -> bool:
     return bool(user_roles(user_id) & set(allowed_roles))
 
 
+def can_trigger_job(user_id: str, job: dict) -> bool:
+    return has_any_role(user_id, job.get("allowed_roles", []))
+
+
 def has_role(user_id: str, role: str) -> bool:
     return role in user_roles(user_id)
 

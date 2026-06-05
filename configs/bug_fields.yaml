@@ -1,13 +1,24 @@
 required_fields:
   - title
-  - description
-  - severity
+  - project_id
+  - tasklist_id
   - module
-  - reproduce_steps
+  - severity
+  - env
+  - steps
+  - expected
+  - actual
+
+default_values:
+  severity: "普通"
 
 field_mapping:
   title: "content"
-  description: "description"
-  severity: "priority"
+  project_id: "projectId"
+  tasklist_id: "tasklistId"
   module: "custom_module"
-  reproduce_steps: "custom_reproduce_steps"
+  severity: "priority"
+  env: "custom_env"
+  steps: "custom_steps"
+  expected: "custom_expected"
+  actual: "custom_actual"

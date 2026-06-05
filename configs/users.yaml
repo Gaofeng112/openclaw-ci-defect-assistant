@@ -1,14 +1,14 @@
 u001:
-  name: "张三"
+  name: "QA User"
   roles:
     - qa
 
 u002:
-  name: "李四"
+  name: "Dev User"
   roles:
     - dev
 
 admin001:
-  name: "管理员"
+  name: "Admin User"
   roles:
     - admin

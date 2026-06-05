@@ -1,0 +1,108 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OpenClaw CI Assistant Tool",
+    "version": "0.1.0",
+    "description": "Forward DingTalk natural language CI/Jenkins requests to the controlled FastAPI backend."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8000",
+      "description": "Local FastAPI service. Replace this with your reachable service URL if OpenClaw runs outside this machine."
+    }
+  ],
+  "paths": {
+    "/assistant/chat": {
+      "post": {
+        "operationId": "call_ci_assistant",
+        "summary": "Call CI assistant",
+        "description": "Use this for any Jenkins, CI pipeline, build, automated test, or ci_test request. Return the reply field directly to DingTalk.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["user_id", "conversation_id", "text"],
+                "properties": {
+                  "user_id": {
+                    "type": "string",
+                    "description": "Local permission user id. Use u001 for the demo unless a DingTalk user mapping exists.",
+                    "default": "u001"
+                  },
+                  "conversation_id": {
+                    "type": "string",
+                    "description": "DingTalk conversationId. Must stay the same across the request and confirmation turns."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "Original user message from DingTalk, for example: 帮我执行 ci_test 环境 test 分支 main"
+                  }
+                }
+              },
+              "examples": {
+                "triggerRequest": {
+                  "value": {
+                    "user_id": "u001",
+                    "conversation_id": "ding-group-001",
+                    "text": "帮我执行 ci_test 环境 test 分支 main"
+                  }
+                },
+                "confirmRequest": {
+                  "value": {
+                    "user_id": "u001",
+                    "conversation_id": "ding-group-001",
+                    "text": "确认"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Assistant response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["success", "message", "reply", "conversation_id"],
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "reply": {
+                      "type": "string",
+                      "description": "Final text to send back to DingTalk."
+                    },
+                    "conversation_id": {
+                      "type": "string"
+                    },
+                    "extracted": {
+                      "type": "object"
+                    },
+                    "missing_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "build_url": {
+                      "type": ["string", "null"]
+                    },
+                    "needs_confirmation": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
