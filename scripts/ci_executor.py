@@ -9,7 +9,7 @@ from pydantic import ValidationError
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app.audit import write_audit
+from app.audit import find_latest, write_audit
 from app.schemas import BugCreateRequest, BugCreateResponse, CiCommand, CiResult, JenkinsTriggerRequest, JenkinsTriggerResponse
 from app.tools.jenkins_tool import trigger_job
 from app.tools.teambition_tool import create_bug
@@ -37,14 +37,10 @@ def execute(command: CiCommand) -> CiResult:
             fields=command.params,
             source=command.source,
         )))
-    if command.action in {"jenkins.query", "bug.query"}:
-        return CiResult(
-            request_id=command.request_id,
-            conversation_id=command.conversation_id,
-            success=False,
-            code="not_implemented",
-            message=f"{command.action} 暂未实现",
-        )
+    if command.action == "jenkins.query":
+        return _query_result(command, "jenkins.trigger", "没有找到最近的 Jenkins 执行记录")
+    if command.action == "bug.query":
+        return _query_result(command, "bug.create", "没有找到最近的 bug 创建记录", {"created"})
     if command.action != "jenkins.trigger":
         return CiResult(
             request_id=command.request_id,
@@ -111,6 +107,54 @@ def _bug_result(command: CiCommand, response: BugCreateResponse) -> CiResult:
         missing_fields=response.missing_fields,
         extracted=response.fields,
     )
+
+
+def _query_result(command: CiCommand, target_action: str, not_found_message: str, codes: set[str] | None = None) -> CiResult:
+    item = find_latest(target_action, command.conversation_id, command.user_id, codes)
+    if not item:
+        return CiResult(
+            request_id=command.request_id,
+            conversation_id=command.conversation_id,
+            success=False,
+            code="not_found",
+            message=not_found_message,
+        )
+    if target_action == "jenkins.trigger":
+        return CiResult(
+            request_id=command.request_id,
+            conversation_id=command.conversation_id,
+            success=True,
+            code="query_result",
+            message=_jenkins_query_message(item),
+            job=item.get("job"),
+            params=item.get("params") or {},
+            build_url=item.get("external_url"),
+            build_status=item.get("build_status"),
+            summary=item.get("summary"),
+        )
+    return CiResult(
+        request_id=command.request_id,
+        conversation_id=command.conversation_id,
+        success=True,
+        code="query_result",
+        message=_bug_query_message(item),
+        params=item.get("result_params") or {},
+        bug_url=item.get("external_url"),
+        task_id=item.get("task_id"),
+        extracted=item.get("result_params") or {},
+    )
+
+
+def _jenkins_query_message(item: dict[str, Any]) -> str:
+    if item.get("external_url"):
+        return f"最近一次 Jenkins 记录：{item.get('code')}"
+    return f"最近一次 Jenkins 记录：{item.get('code')}，暂无链接"
+
+
+def _bug_query_message(item: dict[str, Any]) -> str:
+    if item.get("external_url"):
+        return "最近一次 bug 创建记录已找到"
+    return "最近一次 bug 创建记录已找到，暂无链接"
 
 
 def _code(response: JenkinsTriggerResponse) -> str:

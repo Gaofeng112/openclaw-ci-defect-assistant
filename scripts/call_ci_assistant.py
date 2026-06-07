@@ -58,6 +58,11 @@ def _action(text: str) -> str:
     lowered = text.lower()
     bug_words = ["bug", "缺陷", "问题单", "teambition", "创建问题", "提交问题"]
     jenkins_words = ["jenkins", "ci", "流水线", "自动化", "冒烟", "接口测试", "构建", "跑一下", "执行", "触发"]
+    query_words = ["查询", "查一下", "结果", "状态", "链接", "刚才", "跑完"]
+    if any(word.lower() in lowered for word in bug_words) and any(word in lowered for word in query_words):
+        return "bug.query"
+    if any(word in lowered for word in query_words) and any(word.lower() in lowered for word in jenkins_words + ["跑完", "构建结果"]):
+        return "jenkins.query"
     if any(word.lower() in lowered for word in bug_words):
         return "bug.create"
     if any(word.lower() in lowered for word in jenkins_words):
@@ -102,6 +107,15 @@ def _match(text: str, patterns: list[str]) -> str | None:
 
 
 def _reply(result: CiResult) -> str:
+    if result.code == "query_result" and (result.build_url or result.build_status):
+        return _jenkins_preview(result, result.message)
+    if result.code == "query_result" and (result.bug_url or result.task_id):
+        lines = [result.message]
+        if result.task_id:
+            lines.append(f"任务：{result.task_id}")
+        if result.bug_url:
+            lines.append(f"链接：{result.bug_url}")
+        return "\n".join(lines)
     if result.code == "needs_confirmation":
         return _jenkins_preview(result, "触发 Jenkins 前需要确认。请回复“确认”后继续。")
     if result.code in {"triggered", "build_success", "build_finished"}:

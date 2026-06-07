@@ -24,11 +24,30 @@ def write_audit(command: CiCommand, result: CiResult) -> None:
         "success": result.success,
         "code": result.code,
         "needs_confirmation": result.needs_confirmation,
+        "result_params": _redact(result.params),
+        "build_status": result.build_status,
+        "summary": result.summary,
+        "task_id": result.task_id,
         "external_url": result.build_url or result.bug_url,
     }
     path = AUDIT_DIR / f"{datetime.now().date().isoformat()}.jsonl"
     with path.open("a", encoding="utf-8") as file:
         file.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def find_latest(action: str, conversation_id: str | None, user_id: str, codes: set[str] | None = None) -> dict[str, Any] | None:
+    for path in sorted(AUDIT_DIR.glob("*.jsonl"), reverse=True):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in reversed(lines):
+            item = json.loads(line)
+            if (
+                item.get("action") == action
+                and item.get("conversation_id") == conversation_id
+                and item.get("user_id") == user_id
+                and (codes is None or item.get("code") in codes)
+            ):
+                return item
+    return None
 
 
 def _redact(value: Any) -> Any:
