@@ -10,6 +10,8 @@
 - 提交 Teambition 缺陷
 - 记录测试问题
 - 触发 Jenkins、跑 CI、跑流水线、执行自动化测试
+- 查询刚才的 Jenkins 执行结果或链接
+- 查询刚才创建的 bug 链接
 
 推荐本地工具入口：
 
@@ -132,3 +134,68 @@ https://www.teambition.com/task/{{task_id}}
 ```
 
 Jenkins 是否需要确认，由本地执行器结果决定。不要在用户未确认时自行触发。
+
+如果执行器返回：
+
+```json
+{
+  "success": false,
+  "code": "needs_confirmation",
+  "confirm_token": "confirm_xxx",
+  "preview": {
+    "action": "jenkins.trigger",
+    "job": "api-auto-test",
+    "params": {
+      "env": "test",
+      "branch": "develop"
+    }
+  }
+}
+```
+
+把确认文案发给用户，等待用户明确回复“确认”。用户确认后，必须使用同一个 `conversation_id`，并带回原始请求字段和 `confirm_token`：
+
+```json
+{
+  "request_id": "{{unique_request_id}}",
+  "conversation_id": "{{ding_conversation_id}}",
+  "user_id": "{{ding_user_id}}",
+  "action": "jenkins.trigger",
+  "job": "api-auto-test",
+  "params": {
+    "env": "test",
+    "branch": "develop"
+  },
+  "confirmed": true,
+  "confirm_token": "confirm_xxx",
+  "wait_result": true
+}
+```
+
+不要只传 `confirmed=true`。本地执行器会校验 token、用户和请求内容。
+
+## 查询
+
+当用户问“刚才那个跑完了吗”“刚才的 Jenkins 链接”“构建结果”等，生成：
+
+```json
+{
+  "request_id": "{{unique_request_id}}",
+  "conversation_id": "{{ding_conversation_id}}",
+  "user_id": "{{ding_user_id}}",
+  "action": "jenkins.query"
+}
+```
+
+当用户问“刚才创建的 bug 链接”“bug 链接发我一下”等，生成：
+
+```json
+{
+  "request_id": "{{unique_request_id}}",
+  "conversation_id": "{{ding_conversation_id}}",
+  "user_id": "{{ding_user_id}}",
+  "action": "bug.query"
+}
+```
+
+查询必须使用同一个 `conversation_id` 和真实 `user_id`。不要重新触发 Jenkins，也不要重新创建 bug。

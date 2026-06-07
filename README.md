@@ -54,7 +54,9 @@ The executor prints one JSON result to stdout:
   "success": false,
   "code": "needs_confirmation",
   "message": "触发 Jenkins 前需要确认",
-  "needs_confirmation": true
+  "needs_confirmation": true,
+  "confirm_token": "confirm_xxx",
+  "expires_in_seconds": 300
 }
 ```
 
@@ -72,6 +74,7 @@ Confirmation request:
     "branch": "main"
   },
   "confirmed": true,
+  "confirm_token": "confirm_xxx",
   "wait_result": true
 }
 ```
@@ -106,6 +109,13 @@ For DingTalk integration, prefer the wrapper command:
 ```
 
 It returns JSON with a `reply` field that can be sent back to DingTalk directly.
+
+The same wrapper also handles recent-result queries:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\call_ci_assistant.py --user-id "{{ding_user_id}}" --conversation-id "{{ding_conversation_id}}" --text "刚才那个跑完了吗"
+.\.venv\Scripts\python.exe scripts\call_ci_assistant.py --user-id "{{ding_user_id}}" --conversation-id "{{ding_conversation_id}}" --text "刚才创建的 bug 链接发我一下"
+```
 
 ## Create Teambition Bug
 
