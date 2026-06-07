@@ -11,3 +11,15 @@ ci_test:
     - admin
   confirm_required: true
 
+api-auto-test:
+  job_path: "openclaw-ci-test"
+  allowed_envs:
+    - test
+    - pre
+  required_params:
+    - env
+    - branch
+  allowed_roles:
+    - qa
+    - admin
+  confirm_required: true
