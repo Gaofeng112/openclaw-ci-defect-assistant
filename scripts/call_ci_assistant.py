@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conversation-id", required=True)
     parser.add_argument("--request-id")
     parser.add_argument("--confirmed", action="store_true")
+    parser.add_argument("--confirm-token")
     parser.add_argument("--no-wait-result", action="store_true")
     return parser.parse_args()
 
@@ -41,7 +42,9 @@ def _command(args: argparse.Namespace, action: str) -> CiCommand:
         action=action,
         text=args.text,
         params=_params(args.text, action),
+        source={"platform": "dingtalk", "conversation_id": args.conversation_id, "reporter_user_id": args.user_id},
         confirmed=args.confirmed,
+        confirm_token=args.confirm_token,
         wait_result=not args.no_wait_result,
     )
     if action == "jenkins.trigger":

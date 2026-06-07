@@ -1,5 +1,9 @@
+import hashlib
+import json
+import re
 import time
 from os import getenv
+from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -8,6 +12,9 @@ import httpx
 from app.auth import can_trigger_job
 from app.config import jenkins_settings, jobs_config
 from app.schemas import JenkinsTriggerRequest, JenkinsTriggerResponse
+
+CONFIRM_TTL_SECONDS = 300
+CONFIRM_DIR = Path(__file__).resolve().parent.parent.parent / "runtime" / "confirmations"
 
 
 def _jobs() -> dict:
@@ -25,8 +32,44 @@ def _param_value(request: JenkinsTriggerRequest, name: str):
     return request.parameters.get(name)
 
 
-def _missing_params(request: JenkinsTriggerRequest, required_params: list[str]) -> list[str]:
-    return [name for name in required_params if not _param_value(request, name)]
+def _configured_params(job: dict) -> dict:
+    return dict(job.get("params") or {})
+
+
+def _with_defaults(request: JenkinsTriggerRequest, job: dict) -> JenkinsTriggerRequest:
+    params = dict(request.parameters)
+    env = request.env
+    branch = request.branch
+    for name, config in _configured_params(job).items():
+        default = config.get("default")
+        if name == "env" and not env and default is not None:
+            env = str(default)
+        elif name == "branch" and not branch and default is not None:
+            branch = str(default)
+        elif not params.get(name) and default is not None:
+            params[name] = default
+    return request.model_copy(update={"env": env, "branch": branch, "parameters": params})
+
+
+def _validate_params(request: JenkinsTriggerRequest, job: dict) -> JenkinsTriggerResponse | None:
+    configured_names = set(_configured_params(job))
+    for name in _build_parameters(request):
+        if name not in configured_names:
+            return JenkinsTriggerResponse(success=False, code="invalid_param", message=f"{name} 参数不允许")
+    for name, config in _configured_params(job).items():
+        value = _param_value(request, name)
+        if config.get("required") and not value:
+            return JenkinsTriggerResponse(success=False, code="missing_params", message=f"缺少 {name} 参数")
+        if value is None or value == "":
+            continue
+        allowed = config.get("allowed")
+        if allowed and str(value) not in [str(item) for item in allowed]:
+            code = "invalid_env" if name == "env" else "invalid_param"
+            return JenkinsTriggerResponse(success=False, code=code, message=f"{name} 参数不允许")
+        pattern = config.get("pattern")
+        if pattern and not re.fullmatch(str(pattern), str(value)):
+            return JenkinsTriggerResponse(success=False, code="invalid_param", message=f"{name} 参数格式不正确")
+    return None
 
 
 def _build_parameters(request: JenkinsTriggerRequest) -> dict:
@@ -67,6 +110,7 @@ def _mock_trigger(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse:
             code="build_success",
             build_url=build_url,
             build_status="SUCCESS",
+            summary="mock build success",
         )
     return JenkinsTriggerResponse(
         success=True,
@@ -74,6 +118,59 @@ def _mock_trigger(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse:
         code="triggered",
         build_url=build_url,
     )
+
+
+def _request_hash(request: JenkinsTriggerRequest) -> str:
+    payload = {
+        "user_id": request.user_id,
+        "job": request.job,
+        "env": request.env,
+        "branch": request.branch,
+        "parameters": request.parameters,
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _token_path(token: str) -> Path:
+    return CONFIRM_DIR / f"{token}.json"
+
+
+def _create_confirmation(request: JenkinsTriggerRequest) -> str:
+    token = f"confirm_{uuid4().hex}"
+    CONFIRM_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "token": token,
+        "request_hash": _request_hash(request),
+        "user_id": request.user_id,
+        "expires_at": int(time.time()) + CONFIRM_TTL_SECONDS,
+        "used": False,
+    }
+    _token_path(token).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return token
+
+
+def _consume_confirmation(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse | None:
+    if not request.confirm_token:
+        return JenkinsTriggerResponse(success=False, code="missing_confirm_token", message="缺少确认 token")
+    path = _token_path(request.confirm_token)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 无效")
+
+    if data.get("used"):
+        return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 已使用")
+    if int(data.get("expires_at", 0)) < int(time.time()):
+        path.unlink(missing_ok=True)
+        return JenkinsTriggerResponse(success=False, code="expired_confirm_token", message="确认 token 已过期")
+    if data.get("user_id") != request.user_id or data.get("request_hash") != _request_hash(request):
+        return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 与请求不匹配")
+
+    data["used"] = True
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    path.unlink(missing_ok=True)
+    return None
 
 
 def _real_trigger(request: JenkinsTriggerRequest, job: dict) -> JenkinsTriggerResponse:
@@ -172,18 +269,34 @@ def trigger_job(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse:
     if not job:
         return JenkinsTriggerResponse(success=False, code="invalid_job", message="不允许触发该任务")
 
-    missing_params = _missing_params(request, job.get("required_params", []))
-    if missing_params:
-        return JenkinsTriggerResponse(success=False, code="missing_params", message=f"缺少 {', '.join(missing_params)} 参数")
-
-    if request.env not in job.get("allowed_envs", []):
-        return JenkinsTriggerResponse(success=False, code="invalid_env", message="环境不允许")
+    request = _with_defaults(request, job)
+    param_error = _validate_params(request, job)
+    if param_error:
+        return param_error
 
     if not can_trigger_job(request.user_id, job):
         return JenkinsTriggerResponse(success=False, code="unauthorized", message="无权限")
 
     if job.get("confirm_required", True) and not request.confirmed:
-        return JenkinsTriggerResponse(success=False, code="needs_confirmation", message="触发 Jenkins 前需要确认", needs_confirmation=True)
+        token = _create_confirmation(request)
+        return JenkinsTriggerResponse(
+            success=False,
+            code="needs_confirmation",
+            message="触发 Jenkins 前需要确认",
+            needs_confirmation=True,
+            confirm_token=token,
+            expires_in_seconds=CONFIRM_TTL_SECONDS,
+            preview={
+                "action": "jenkins.trigger",
+                "job": request.job,
+                "params": _build_parameters(request),
+            },
+        )
+
+    if job.get("confirm_required", True):
+        confirmation_error = _consume_confirmation(request)
+        if confirmation_error:
+            return confirmation_error
 
     if _has_real_jenkins():
         return _real_trigger(request, job)

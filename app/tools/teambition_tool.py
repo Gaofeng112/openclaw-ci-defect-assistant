@@ -14,22 +14,32 @@ from app.session_store import clear_fields, load_fields, save_fields
 
 
 ACTION = "bug.create"
-REQUIRED_FIELDS = ["title", "project_id", "tasklist_id", "module", "severity", "env", "steps", "expected", "actual"]
+REQUIRED_FIELDS = ["title", "module", "severity", "env", "steps", "expected", "actual"]
+REQUIRED_CONFIG_FIELDS = ["project_id", "tasklist_id"]
 DEFAULTS = {"severity": "普通"}
 NOTE_FIELDS = ["module", "severity", "env", "steps", "expected", "actual", "description"]
+SYSTEM_FIELDS = {"project_id", "tasklist_id", "executor_id"}
 
 
 def create_bug(request: BugCreateRequest) -> BugCreateResponse:
     fields = _merged_fields(request)
     missing = [name for name in REQUIRED_FIELDS if not fields.get(name)]
     if missing:
-        save_fields(ACTION, request.conversation_id, fields)
+        save_fields(ACTION, request.conversation_id, _public_fields(fields))
         return BugCreateResponse(
             success=False,
             code="missing_fields",
             message=f"缺少 {', '.join(missing)}，请补充后继续。",
             missing_fields=missing,
-            fields=fields,
+            fields=_public_fields(fields),
+        )
+    missing_config = [name for name in REQUIRED_CONFIG_FIELDS if not fields.get(name)]
+    if missing_config:
+        return BugCreateResponse(
+            success=False,
+            code="missing_config",
+            message=f"缺少 Teambition 配置: {', '.join(missing_config)}",
+            fields=_public_fields(fields),
         )
 
     if _mock_enabled():
@@ -39,7 +49,7 @@ def create_bug(request: BugCreateRequest) -> BugCreateResponse:
     if response.success:
         clear_fields(ACTION, request.conversation_id)
     else:
-        save_fields(ACTION, request.conversation_id, fields)
+        save_fields(ACTION, request.conversation_id, _public_fields(fields))
     return response
 
 
@@ -48,6 +58,7 @@ def _merged_fields(request: BugCreateRequest) -> dict[str, Any]:
     fields = DEFAULTS | {
         "project_id": settings["project_id"],
         "tasklist_id": settings["tasklist_id"],
+        "executor_id": settings["default_executor_id"],
     }
     fields |= load_fields(ACTION, request.conversation_id)
     fields |= extract_bug_fields(request.text, request.fields)
@@ -68,7 +79,7 @@ def _mock_response(request: BugCreateRequest, fields: dict[str, Any]) -> BugCrea
         message=f"已模拟创建 Teambition 缺陷：{fields['title']}",
         bug_url=f"http://fake-teambition/task/{task_id}",
         task_id=task_id,
-        fields=fields,
+        fields=_public_fields(fields),
     )
 
 
@@ -78,12 +89,13 @@ def _create_task(fields: dict[str, Any]) -> BugCreateResponse:
         "content": fields["title"],
         "projectId": fields["project_id"],
         "tasklistId": fields["tasklist_id"],
-        "executorId": settings["operator_id"],
+        "executorId": fields.get("executor_id") or settings["default_executor_id"],
         "note": _note(fields),
-        "priority": _priority(fields["severity"]),
+        "priority": _priority(fields["severity"], settings["priority_map"]),
         "stageId": settings["stage_id"],
         "tfsId": settings["taskflowstatus_id"],
         "sfcId": settings["sfc_id"],
+        "customfields": _customfields(fields, settings["customfields"]) or None,
     }
     try:
         with httpx.Client(timeout=20, trust_env=False) as client:
@@ -101,7 +113,7 @@ def _create_task(fields: dict[str, Any]) -> BugCreateResponse:
             success=False,
             code=data.get("errorCode") or "teambition_error",
             message=data.get("errorMessage") or f"Teambition 创建失败: HTTP {response.status_code}",
-            fields=fields,
+            fields=_public_fields(fields),
         )
 
     task = data.get("result") or {}
@@ -112,7 +124,7 @@ def _create_task(fields: dict[str, Any]) -> BugCreateResponse:
         message=f"已创建 Teambition 缺陷：{fields['title']}",
         bug_url=_task_url(task_id),
         task_id=task_id,
-        fields=fields,
+        fields=_public_fields(fields),
     )
 
 
@@ -168,8 +180,30 @@ def _note(fields: dict[str, Any]) -> str:
     return "\n\n".join(f"{labels[name]}：{fields[name]}" for name in NOTE_FIELDS if fields.get(name))
 
 
-def _priority(severity: str) -> int:
-    return {"紧急": 10, "较高": 0, "普通": -10, "较低": -20}.get(str(severity), -10)
+def _public_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in fields.items() if key not in SYSTEM_FIELDS}
+
+
+def _priority(severity: str, priority_map: dict[str, int]) -> int:
+    return int(priority_map.get(str(severity), -10))
+
+
+def _customfields(fields: dict[str, Any], customfield_config: dict[str, str]) -> list[dict[str, Any]]:
+    labels = {
+        "env": "环境",
+        "api": "接口",
+        "severity": "严重程度",
+        "module": "模块",
+    }
+    result = []
+    for name, cf_id in customfield_config.items():
+        if fields.get(name) and cf_id:
+            result.append({
+                "cfId": cf_id,
+                "customfieldName": labels.get(name, name),
+                "value": [{"title": str(fields[name])}],
+            })
+    return result
 
 
 def _task_url(task_id: str | None) -> str | None:

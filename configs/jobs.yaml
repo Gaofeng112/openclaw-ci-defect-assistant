@@ -1,25 +1,33 @@
 ci_test:
   job_path: "openclaw-ci-test"
-  allowed_envs:
-    - test
-    - pre
-  required_params:
-    - env
-    - branch
   allowed_roles:
     - qa
     - admin
   confirm_required: true
+  params:
+    env:
+      required: true
+      allowed:
+        - test
+        - pre
+    branch:
+      required: true
+      default: develop
+      pattern: "^[a-zA-Z0-9._/-]+$"
 
 api-auto-test:
   job_path: "openclaw-ci-test"
-  allowed_envs:
-    - test
-    - pre
-  required_params:
-    - env
-    - branch
   allowed_roles:
     - qa
     - admin
   confirm_required: true
+  params:
+    env:
+      required: true
+      allowed:
+        - test
+        - pre
+    branch:
+      required: true
+      default: develop
+      pattern: "^[a-zA-Z0-9._/-]+$"

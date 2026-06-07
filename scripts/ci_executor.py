@@ -9,6 +9,7 @@ from pydantic import ValidationError
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from app.audit import write_audit
 from app.schemas import BugCreateRequest, BugCreateResponse, CiCommand, CiResult, JenkinsTriggerRequest, JenkinsTriggerResponse
 from app.tools.jenkins_tool import trigger_job
 from app.tools.teambition_tool import create_bug
@@ -34,7 +35,24 @@ def execute(command: CiCommand) -> CiResult:
             conversation_id=command.conversation_id,
             text=command.text,
             fields=command.params,
+            source=command.source,
         )))
+    if command.action in {"jenkins.query", "bug.query"}:
+        return CiResult(
+            request_id=command.request_id,
+            conversation_id=command.conversation_id,
+            success=False,
+            code="not_implemented",
+            message=f"{command.action} 暂未实现",
+        )
+    if command.action != "jenkins.trigger":
+        return CiResult(
+            request_id=command.request_id,
+            conversation_id=command.conversation_id,
+            success=False,
+            code="invalid_action",
+            message=f"不支持的 action: {command.action}",
+        )
     if not command.job:
         return CiResult(success=False, code="invalid_request", message="job is required for jenkins.trigger")
     response = trigger_job(
@@ -45,6 +63,7 @@ def execute(command: CiCommand) -> CiResult:
             branch=_string_param(command.params, "branch"),
             parameters={key: value for key, value in command.params.items() if key not in {"env", "branch"}},
             confirmed=command.confirmed,
+            confirm_token=command.confirm_token,
             wait_result=command.wait_result,
         )
     )
@@ -68,8 +87,14 @@ def _result(command: CiCommand, response: JenkinsTriggerResponse) -> CiResult:
         job=command.job,
         params=command.params,
         needs_confirmation=response.needs_confirmation,
+        confirm_token=response.confirm_token,
+        expires_in_seconds=response.expires_in_seconds,
+        preview=response.preview,
+        build_number=response.build_number,
         build_url=response.build_url,
         build_status=response.build_status,
+        duration_seconds=response.duration_seconds,
+        summary=response.summary,
     )
 
 
@@ -111,10 +136,14 @@ def print_result(result: CiResult) -> None:
 
 
 def main() -> int:
+    command = None
     try:
-        result = execute(load_command(parse_args()))
+        command = load_command(parse_args())
+        result = execute(command)
     except (OSError, json.JSONDecodeError, ValidationError) as exc:
         result = _error_result(exc)
+    if command:
+        write_audit(command, result)
     print_result(result)
     return 0
 

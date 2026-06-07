@@ -137,11 +137,11 @@ If fields are missing, send a second request with the same `conversation_id`:
 Required bug fields:
 
 ```text
-title, project_id, tasklist_id, module, severity, env, steps, expected, actual
+title, module, severity, env, steps, expected, actual
 ```
 
-`project_id` and `tasklist_id` normally come from `.env`. OpenClaw may also pass
-structured values in `params`; structured values override natural-language extraction.
+Teambition system IDs come from `configs/teambition.yaml`. OpenClaw should only pass
+business fields in `params`; structured values override natural-language extraction.
 
 OpenClaw is allowed to normalize or rewrite the structured command before calling
 the local executor. Prefer sending confident fields in `params`; use the same
@@ -157,6 +157,13 @@ TEAMBITION_APP_ID=your-app-id
 TEAMBITION_APP_SECRET=your-app-secret
 TEAMBITION_ORG_ID=your-org-id
 TEAMBITION_OPERATOR_ID=your-user-id
-TEAMBITION_PROJECT_ID=your-project-id
-TEAMBITION_TASKLIST_ID=your-tasklist-id
+```
+
+```yaml
+# configs/teambition.yaml
+project_id: "tb_project_id"
+bug_sfc_id: "tb_bug_sfc_id"
+default_stage_id: "tb_stage_id"
+default_tasklist_id: "tb_tasklist_id"
+default_executor_id: "tb_user_default"
 ```
