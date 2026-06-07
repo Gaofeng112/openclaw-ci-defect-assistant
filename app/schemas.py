@@ -43,6 +43,7 @@ class CiResult(BaseModel):
 
 class JenkinsTriggerRequest(BaseModel):
     user_id: str = Field(..., examples=["u001"])
+    conversation_id: str | None = None
     job: str = Field(..., examples=["ci_test"])
     env: str | None = Field(None, examples=["test"])
     branch: str | None = Field(None, examples=["main"])

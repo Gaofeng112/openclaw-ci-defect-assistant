@@ -54,6 +54,7 @@ def execute(command: CiCommand) -> CiResult:
     response = trigger_job(
         JenkinsTriggerRequest(
             user_id=command.user_id,
+            conversation_id=command.conversation_id,
             job=command.job,
             env=_string_param(command.params, "env"),
             branch=_string_param(command.params, "branch"),

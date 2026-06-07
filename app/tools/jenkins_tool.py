@@ -123,6 +123,7 @@ def _mock_trigger(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse:
 def _request_hash(request: JenkinsTriggerRequest) -> str:
     payload = {
         "user_id": request.user_id,
+        "conversation_id": request.conversation_id,
         "job": request.job,
         "env": request.env,
         "branch": request.branch,
@@ -143,6 +144,13 @@ def _create_confirmation(request: JenkinsTriggerRequest) -> str:
         "token": token,
         "request_hash": _request_hash(request),
         "user_id": request.user_id,
+        "conversation_id": request.conversation_id,
+        "job": request.job,
+        "env": request.env,
+        "branch": request.branch,
+        "parameters": request.parameters,
+        "wait_result": request.wait_result,
+        "created_at": int(time.time()),
         "expires_at": int(time.time()) + CONFIRM_TTL_SECONDS,
         "used": False,
     }
@@ -164,13 +172,30 @@ def _consume_confirmation(request: JenkinsTriggerRequest) -> JenkinsTriggerRespo
     if int(data.get("expires_at", 0)) < int(time.time()):
         path.unlink(missing_ok=True)
         return JenkinsTriggerResponse(success=False, code="expired_confirm_token", message="确认 token 已过期")
-    if data.get("user_id") != request.user_id or data.get("request_hash") != _request_hash(request):
+    if data.get("user_id") != request.user_id or data.get("conversation_id") != request.conversation_id or data.get("request_hash") != _request_hash(request):
         return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 与请求不匹配")
 
     data["used"] = True
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     path.unlink(missing_ok=True)
     return None
+
+
+def find_pending_confirmation(user_id: str, conversation_id: str | None) -> dict | None:
+    now = int(time.time())
+    latest: dict | None = None
+    for path in CONFIRM_DIR.glob("confirm_*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if data.get("used") or int(data.get("expires_at", 0)) < now:
+            continue
+        if data.get("user_id") != user_id or data.get("conversation_id") != conversation_id:
+            continue
+        if latest is None or int(data.get("created_at", 0)) > int(latest.get("created_at", 0)):
+            latest = data
+    return latest
 
 
 def _real_trigger(request: JenkinsTriggerRequest, job: dict) -> JenkinsTriggerResponse:

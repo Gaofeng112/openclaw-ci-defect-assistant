@@ -7,8 +7,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from app.audit import write_audit
 from app.config import jobs_config
 from app.schemas import CiCommand, CiResult
+from app.tools.jenkins_tool import find_pending_confirmation
 from scripts.ci_executor import execute
 
 
@@ -26,13 +28,45 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    action = _action(args.text)
-    if action == "unknown_intent":
+    command = _confirmation_command(args)
+    action = _action(args.text) if command is None else command.action
+    if command is None and action == "unknown_intent":
         result = CiResult(success=False, code="unknown_intent", message="没判断出是执行 Jenkins 还是创建 bug，请补充说明。")
     else:
-        result = execute(_command(args, action))
+        command = command or _command(args, action)
+        result = execute(command)
+        write_audit(command, result)
     print_json({"reply": _reply(result), "result": result.model_dump(exclude_none=True)})
     return 0
+
+
+def _confirmation_command(args: argparse.Namespace) -> CiCommand | None:
+    if not _is_confirmation(args.text) or args.confirm_token:
+        return None
+    data = find_pending_confirmation(args.user_id, args.conversation_id)
+    if not data:
+        return None
+    params = dict(data.get("parameters") or {})
+    if data.get("env"):
+        params["env"] = data["env"]
+    if data.get("branch"):
+        params["branch"] = data["branch"]
+    return CiCommand(
+        conversation_id=args.conversation_id,
+        user_id=args.user_id,
+        action="jenkins.trigger",
+        job=data["job"],
+        text=args.text,
+        params=params,
+        source={"platform": "dingtalk", "conversation_id": args.conversation_id, "reporter_user_id": args.user_id},
+        confirmed=True,
+        confirm_token=data["token"],
+        wait_result=bool(data.get("wait_result", True)),
+    )
+
+
+def _is_confirmation(text: str) -> bool:
+    return text.strip().lower() in {"确认", "确定", "yes", "y", "ok"}
 
 
 def _command(args: argparse.Namespace, action: str) -> CiCommand:
