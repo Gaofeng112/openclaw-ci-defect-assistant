@@ -1,6 +1,36 @@
 from typing import Any, Literal
+from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
+
+
+class CiCommand(BaseModel):
+    request_id: str = Field(default_factory=lambda: uuid4().hex)
+    conversation_id: str | None = None
+    user_id: str = Field(..., examples=["u001"])
+    action: Literal["jenkins.trigger", "bug.create"] = "jenkins.trigger"
+    job: str | None = Field(None, examples=["ci_test"])
+    text: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    confirmed: bool = False
+    wait_result: bool = False
+
+
+class CiResult(BaseModel):
+    request_id: str | None = None
+    conversation_id: str | None = None
+    success: bool
+    code: str
+    message: str
+    job: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+    needs_confirmation: bool = False
+    build_url: str | None = None
+    build_status: str | None = None
+    bug_url: str | None = None
+    task_id: str | None = None
+    missing_fields: list[str] = Field(default_factory=list)
+    extracted: dict[str, Any] = Field(default_factory=dict)
 
 
 class JenkinsTriggerRequest(BaseModel):
@@ -10,77 +40,30 @@ class JenkinsTriggerRequest(BaseModel):
     branch: str | None = Field(None, examples=["main"])
     parameters: dict[str, Any] = Field(default_factory=dict)
     confirmed: bool = False
+    wait_result: bool = False
 
 
 class JenkinsTriggerResponse(BaseModel):
     success: bool
     message: str
+    code: str = "failed"
     build_url: str | None = None
+    build_status: str | None = None
     needs_confirmation: bool = False
-
-
-class JenkinsNaturalLanguageRequest(BaseModel):
-    user_id: str = Field(..., examples=["u001"])
-    conversation_id: str | None = Field(None, examples=["ding-group-001"])
-    text: str = Field(..., examples=["确认执行 ci_test，环境 test，分支 main"])
-
-
-class JenkinsNaturalLanguageResponse(BaseModel):
-    success: bool
-    message: str
-    reply: str
-    conversation_id: str
-    extracted: dict[str, Any] = Field(default_factory=dict)
-    missing_fields: list[str] = Field(default_factory=list)
-    build_url: str | None = None
-    needs_confirmation: bool = False
-
-
-class AssistantChatRequest(JenkinsNaturalLanguageRequest):
-    pass
-
-
-class AssistantChatResponse(JenkinsNaturalLanguageResponse):
-    pass
-
-
-class DingTalkCallbackRequest(BaseModel):
-    senderId: str | None = None
-    senderStaffId: str | None = None
-    conversationId: str | None = None
-    text: dict[str, Any] | None = None
-    msgtype: str | None = None
-
-
-class DingTalkCallbackResponse(BaseModel):
-    msgtype: str = "text"
-    text: dict[str, str]
 
 
 class BugCreateRequest(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
     user_id: str = Field(..., examples=["u001"])
-    title: str | None = Field(None, examples=["登录失败"])
-    project_id: str | None = None
-    tasklist_id: str | None = None
-    description: str | None = None
-    module: str | None = Field(None, examples=["auth"])
-    severity: str | None = Field(None, examples=["P2"])
-    env: str | None = Field(None, examples=["test"])
-    steps: str | None = None
-    expected: str | None = None
-    actual: str | None = None
-    reproduce_steps: str | None = None
-    extra_fields: dict[str, Any] = Field(default_factory=dict)
+    conversation_id: str | None = None
+    text: str | None = None
+    fields: dict[str, Any] = Field(default_factory=dict)
 
 
 class BugCreateResponse(BaseModel):
     success: bool
     message: str
+    code: str = "failed"
     bug_url: str | None = None
+    task_id: str | None = None
     missing_fields: list[str] = Field(default_factory=list)
-
-
-class HealthResponse(BaseModel):
-    status: Literal["ok"]
+    fields: dict[str, Any] = Field(default_factory=dict)

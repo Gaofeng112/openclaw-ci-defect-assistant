@@ -1,233 +1,162 @@
-# OpenClaw CI Defect Assistant
+# OpenClaw CI Tool
 
-基于 OpenClaw 的 CI 流水线触发与缺陷助手后端工具服务。
-
-## 当前进度
-
-- 已完成 `GET /health`。
-- 已完成 `POST /tools/jenkins/trigger` 本地 mock 接口。
-- 已完成 `POST /tools/bugs/create` 本地 mock 接口。
-- 已完成 Jenkins job 白名单校验。
-- 已完成基于用户角色的 Jenkins 触发权限校验。
-
-## 本地启动
-
-```powershell
-.\.venv\Scripts\activate
-uvicorn app.main:app --reload --port 8000
-```
-
-接口文档：
+Minimal ChatOps + Tool/RPC executor for Jenkins tests.
 
 ```text
-http://127.0.0.1:8000/docs
+DingTalk -> OpenClaw semantic analysis -> JSON command file -> scripts/ci_executor.py -> Jenkins -> JSON result -> OpenClaw reply
 ```
 
-## Docker 部署
+OpenClaw owns natural-language understanding and user-facing replies. This project owns trusted execution: schema validation, whitelist checks, role checks, confirmation checks, Jenkins trigger, and optional result polling.
 
-先确认 Docker Desktop 已启动。
-
-构建镜像：
-
-```powershell
-docker build -t openclaw-ci-defect-assistant:local .
-```
-
-直接运行容器：
-
-```powershell
-docker run --rm -p 8000:8000 --env-file .env openclaw-ci-defect-assistant:local
-```
-
-使用 Docker Compose：
-
-```powershell
-docker compose up --build
-```
-
-如果本机 `8000` 端口已经被本地 uvicorn 占用，可以临时映射到 `8001`：
-
-```powershell
-$env:HOST_PORT=8001
-docker compose up --build
-```
-
-验证容器服务：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-```
-
-## 配置说明
-
-`configs/jobs.yaml` 配置 Jenkins job 白名单：
-
-```yaml
-smoke:
-  job_path: "QA/smoke-test"
-  allowed_envs:
-    - test
-    - pre
-  required_params:
-    - env
-    - branch
-  allowed_roles:
-    - qa
-    - admin
-  confirm_required: true
-```
-
-`configs/users.yaml` 配置用户角色：
-
-```yaml
-u001:
-  name: "QA User"
-  roles:
-    - qa
-```
-
-权限规则：
+## Files
 
 ```text
-用户 roles 和 job.allowed_roles 有交集，则允许触发。
-否则返回无权限。
+scripts/ci_executor.py       JSON command executor used by OpenClaw
+app/schemas.py               Command/result and Jenkins models
+app/tools/jenkins_tool.py    Jenkins validation, trigger, and result polling
+app/tools/teambition_tool.py Teambition bug creation
+app/auth.py                  User-role checks
+app/config.py                .env and YAML config loading
+configs/jobs.yaml            Jenkins job whitelist
+configs/users.yaml           User role mapping
 ```
 
-## Jenkins 接口验证
+## Request JSON
 
-未确认时不会触发 Jenkins：
+```json
+{
+  "request_id": "demo-001",
+  "conversation_id": "36665056041252632",
+  "user_id": "u001",
+  "action": "jenkins.trigger",
+  "job": "ci_test",
+  "params": {
+    "env": "test",
+    "branch": "main"
+  },
+  "confirmed": false,
+  "wait_result": false
+}
+```
+
+## Run Locally
+
+Write a request file, then run:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"u001","job":"smoke","env":"test","branch":"release/1.0.0"}'
+.\.venv\Scripts\python.exe scripts\ci_executor.py --request-file runtime\requests\demo-001.json
 ```
 
-确认后触发 Jenkins：
+The executor prints one JSON result to stdout:
+
+```json
+{
+  "success": false,
+  "code": "needs_confirmation",
+  "message": "触发 Jenkins 前需要确认",
+  "needs_confirmation": true
+}
+```
+
+Confirmation request:
+
+```json
+{
+  "request_id": "demo-001-confirm",
+  "conversation_id": "36665056041252632",
+  "user_id": "u001",
+  "action": "jenkins.trigger",
+  "job": "ci_test",
+  "params": {
+    "env": "test",
+    "branch": "main"
+  },
+  "confirmed": true,
+  "wait_result": true
+}
+```
+
+## Mock Test
+
+Use `JENKINS_MOCK=1` to avoid triggering real Jenkins:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"u001","job":"smoke","env":"test","branch":"release/1.0.0","confirmed":true}'
+$env:JENKINS_MOCK='1'
+.\.venv\Scripts\python.exe scripts\ci_executor.py --request-file runtime\requests\demo-001.json
 ```
 
-无权限用户：
+## OpenClaw Rule
+
+For a DingTalk CI request, OpenClaw should:
+
+1. Extract `job`, `env`, `branch`, `wait_result`, `conversation_id`, and `user_id`.
+2. Write a JSON command file under `runtime/requests/`.
+3. Execute `scripts/ci_executor.py --request-file <file>`.
+4. Parse stdout JSON.
+5. Reply to DingTalk from the structured result.
+
+If DingTalk replies with generic text such as "which defect management system"
+or "I do not have Teambition access", OpenClaw has not called this executor.
+Configure the Tool Router with `docs/openclaw-tool-router-prompt.md`.
+
+For DingTalk integration, prefer the wrapper command:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"u002","job":"smoke","env":"test","branch":"release/1.0.0"}'
+.\.venv\Scripts\python.exe scripts\call_ci_assistant.py --user-id "{{ding_user_id}}" --conversation-id "{{ding_conversation_id}}" --text "{{original_user_text}}"
 ```
 
-管理员触发：
+It returns JSON with a `reply` field that can be sent back to DingTalk directly.
 
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"admin001","job":"regression","env":"test","branch":"release/1.0.0"}'
+## Create Teambition Bug
+
+OpenClaw can send natural-language bug creation requests to the same executor:
+
+```json
+{
+  "request_id": "bug-001",
+  "conversation_id": "36665056041252632",
+  "user_id": "u001",
+  "action": "bug.create",
+  "text": "创建bug 标题：登录失败 模块：auth 环境：test 严重程度：P2 步骤：输入正确账号密码后点击登录 预期：进入首页 实际：提示500"
+}
 ```
 
-非法任务：
+The executor validates required fields and saves partial fields by `conversation_id`.
+If fields are missing, send a second request with the same `conversation_id`:
 
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"u001","job":"unknown","env":"test","branch":"release/1.0.0"}'
+```json
+{
+  "request_id": "bug-001-fill",
+  "conversation_id": "36665056041252632",
+  "user_id": "u001",
+  "action": "bug.create",
+  "text": "预期：进入首页 实际：提示500"
+}
 ```
 
-非法环境：
+Required bug fields:
 
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"u001","job":"smoke","env":"prod","branch":"release/1.0.0"}'
+```text
+title, project_id, tasklist_id, module, severity, env, steps, expected, actual
 ```
 
-缺少 branch：
+`project_id` and `tasklist_id` normally come from `.env`. OpenClaw may also pass
+structured values in `params`; structured values override natural-language extraction.
 
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/jenkins/trigger -ContentType 'application/json' -Body '{"user_id":"u001","job":"smoke","env":"test"}'
-```
+OpenClaw is allowed to normalize or rewrite the structured command before calling
+the local executor. Prefer sending confident fields in `params`; use the same
+`conversation_id` when asking the user to fill missing fields. Do not ask again
+for fields already available from the current conversation or from executor
+defaults.
 
-## 真实 Jenkins 配置
-
-`.env` 需要填写：
+Teambition config:
 
 ```env
-JENKINS_BASE_URL=http://your-jenkins-host
-JENKINS_USER=your-user
-JENKINS_TOKEN=your-api-token
-```
-
-接口仍然只允许传 `job=smoke`、`job=regression` 这类白名单别名。真实 Jenkins 路径必须来自 `configs/jobs.yaml` 的 `job_path`。
-
-当前实现会调用：
-
-```text
-POST {JENKINS_BASE_URL}/job/QA/job/smoke-test/buildWithParameters
-```
-
-参数来自请求体：
-
-```text
-env
-branch
-parameters
-```
-
-## 自然语言触发 Jenkins
-
-钉钉/OpenClaw 接入说明见：
-
-```text
-docs/dingtalk-jenkins-flow.md
-```
-
-推荐自然语言入口：
-
-```text
-POST /assistant/chat
-```
-
-Jenkins 专用自然语言入口：
-
-```text
-POST /assistant/jenkins/trigger
-```
-
-钉钉机器人直接回调入口：
-
-```text
-POST /callbacks/dingtalk
-```
-
-请求中可以传 `conversation_id`。同一个 `conversation_id` 下，系统会记住前面已经解析出的 `job/env/branch`。响应中的 `reply` 可以直接发回聊天窗口或钉钉群。
-
-缺参数时会返回 `missing_fields`：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/assistant/chat -ContentType 'application/json' -Body '{"user_id":"u001","conversation_id":"demo-chat-1","text":"帮我执行 ci_test"}'
-```
-
-补充参数后，不会立即触发 Jenkins，会先要求确认：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/assistant/chat -ContentType 'application/json' -Body '{"user_id":"u001","conversation_id":"demo-chat-1","text":"环境 test，分支 main"}'
-```
-
-文本包含确认意图时才会触发真实 Jenkins：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/assistant/chat -ContentType 'application/json' -Body '{"user_id":"u001","conversation_id":"demo-chat-1","text":"确认"}'
-```
-
-当前支持的解析方式：
-
-```text
-job：匹配 jobs.yaml 中的别名或 Jenkins job 名称
-env：识别 “环境 test”、"env=test"、"测试环境"、"预发环境"
-branch：识别 “分支 main”、"branch=main"
-confirmed：文本包含 “确认”、“可以执行”、“同意执行” 等确认意图
-```
-
-## Bug 接口验证
-
-缺字段时返回 `missing_fields`：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/bugs/create -ContentType 'application/json' -Body '{"user_id":"u001","title":"登录失败","description":"输入正确密码后仍提示失败","severity":"P2","module":"auth"}'
-```
-
-字段齐全时 mock 创建成功：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/tools/bugs/create -ContentType 'application/json' -Body '{"user_id":"u001","title":"登录失败","project_id":"demo-project","tasklist_id":"demo-tasklist","module":"auth","severity":"P2","env":"test","steps":"输入正确账号密码后点击登录","expected":"进入首页","actual":"提示500"}'
+TEAMBITION_BASE_URL=https://open.teambition.com/api
+TEAMBITION_APP_ID=your-app-id
+TEAMBITION_APP_SECRET=your-app-secret
+TEAMBITION_ORG_ID=your-org-id
+TEAMBITION_OPERATOR_ID=your-user-id
+TEAMBITION_PROJECT_ID=your-project-id
+TEAMBITION_TASKLIST_ID=your-tasklist-id
 ```

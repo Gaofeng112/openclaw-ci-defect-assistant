@@ -1,165 +1,81 @@
 import re
-from dataclasses import dataclass
-
-from app.config import jobs_config
-from app.schemas import JenkinsTriggerRequest
+from typing import Any
 
 
-@dataclass(frozen=True)
-class ParsedJenkinsCommand:
-    request: JenkinsTriggerRequest | None
-    extracted: dict
-    missing_fields: list[str]
+FIELD_ALIASES = {
+    "title": ("title", "标题", "问题", "缺陷", "bug"),
+    "module": ("module", "模块", "功能", "页面"),
+    "severity": ("severity", "优先级", "严重程度", "级别"),
+    "env": ("env", "环境", "测试环境"),
+    "steps": ("steps", "步骤", "复现步骤", "操作步骤"),
+    "expected": ("expected", "期望", "预期", "预期结果"),
+    "actual": ("actual", "实际", "实际结果", "现象"),
+    "description": ("description", "描述", "详情", "备注"),
+}
+
+SEVERITY_WORDS = {
+    "较低": "较低",
+    "低": "较低",
+    "普通": "普通",
+    "一般": "普通",
+    "中": "普通",
+    "高": "较高",
+    "较高": "较高",
+    "紧急": "紧急",
+    "严重": "紧急",
+    "p0": "紧急",
+    "p1": "较高",
+    "p2": "普通",
+    "p3": "较低",
+}
 
 
-def _jobs() -> dict:
-    config = jobs_config()
-    return config.get("jobs", config)
+def extract_bug_fields(text: str | None, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    fields = _clean(params or {})
+    if not text:
+        return _normalize(fields)
+    return _normalize(_extract_freeform(text) | _extract_labeled(text) | fields)
 
 
-def _compact(value: str) -> str:
-    return re.sub(r"[\s_-]+", "", value.lower())
+def _clean(fields: dict[str, Any]) -> dict[str, Any]:
+    return {key: value.strip() if isinstance(value, str) else value for key, value in fields.items() if value not in (None, "")}
 
 
-def _is_ci_intent(text: str) -> bool:
-    keywords = [
-        "jenkins",
-        "ci",
-        "流水线",
-        "构建",
-        "测试",
-        "自动化",
-        "跑一下",
-        "执行",
-        "触发",
-        "娴嬭瘯",
-        "鎵ц",
-        "瑙﹀彂",
-        "鏋勫缓",
-    ]
-    return any(keyword in text.lower() for keyword in keywords)
+def _normalize(fields: dict[str, Any]) -> dict[str, Any]:
+    if "severity" in fields:
+        fields["severity"] = SEVERITY_WORDS.get(str(fields["severity"]).lower(), fields["severity"])
+    return fields
 
 
-def _find_job(text: str) -> str | None:
-    compact_text = _compact(text)
-    for alias, job in _jobs().items():
-        candidates = {alias, job.get("job_path", "").split("/")[-1]}
-        if any(_compact(candidate) in compact_text for candidate in candidates if candidate):
-            return alias
-
-    jobs = _jobs()
-    if _is_ci_intent(text) and len(jobs) == 1:
-        return next(iter(jobs))
-    return None
+def _extract_labeled(text: str) -> dict[str, str]:
+    alias_map = {alias.lower(): field for field, aliases in FIELD_ALIASES.items() for alias in aliases}
+    labels = "|".join(re.escape(alias) for alias in sorted(alias_map, key=len, reverse=True))
+    pattern = re.compile(rf"(?P<label>{labels})\s*[:：=]\s*(?P<value>.*?)(?=(?:\s*(?:{labels})\s*[:：=])|$)", re.I | re.S)
+    return {alias_map[m.group("label").lower()]: _strip_value(m.group("value")) for m in pattern.finditer(text)}
 
 
-def _find_keyed_value(text: str, keys: list[str]) -> str | None:
-    key_pattern = "|".join(re.escape(key) for key in keys)
-    match = re.search(rf"(?:{key_pattern})\s*(?:是|为|=|:|：)?\s*([A-Za-z0-9._/\-]+)", text, re.IGNORECASE)
-    return match.group(1).rstrip("，,。.;；") if match else None
-
-
-def _find_env(text: str, job_alias: str | None) -> str | None:
-    keyed = _find_keyed_value(text, ["env", "环境", "鐜"])
-    if keyed:
-        return keyed
-
-    env_aliases = {
-        "测试环境": "test",
-        "测试": "test",
-        "预发环境": "pre",
-        "预发": "pre",
-    }
-    for phrase, env in env_aliases.items():
-        if phrase in text:
-            return env
-
-    allowed_envs = _jobs().get(job_alias or "", {}).get("allowed_envs", [])
-    for env in allowed_envs:
-        if re.search(rf"(?<![A-Za-z0-9_-]){re.escape(env)}(?![A-Za-z0-9_-])", text, re.IGNORECASE):
-            return env
-    return None
-
-
-def _find_branch(text: str, job_alias: str | None, env: str | None) -> str | None:
-    keyed = _find_keyed_value(text, ["branch", "分支", "代码分支", "鍒嗘敮", "浠ｇ爜鍒嗘敮"])
-    return keyed or _find_unkeyed_branch(text, job_alias, env)
-
-
-def _find_unkeyed_branch(text: str, job_alias: str | None, env: str | None) -> str | None:
-    ignore = {
-        "jenkins",
-        "ci",
-        "env",
-        "branch",
-        "pipeline",
-        "build",
-        "run",
-        "trigger",
-        "confirm",
-        "yes",
-    }
-    if job_alias:
-        job = _jobs().get(job_alias, {})
-        ignore.update({_compact(job_alias), _compact(job.get("job_path", "").split("/")[-1])})
+def _extract_freeform(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    lower = text.lower()
+    for word, severity in SEVERITY_WORDS.items():
+        if word in lower:
+            result.setdefault("severity", severity)
+            break
+    env = _match_first(text, [r"(?:环境|在)\s*([a-zA-Z0-9_-]+)\s*(?:环境)?", r"\b(env|test|pre|prod|uat)\b"])
     if env:
-        ignore.add(_compact(env))
-
-    allowed_envs = _jobs().get(job_alias or "", {}).get("allowed_envs", [])
-    ignore.update(_compact(item) for item in allowed_envs)
-
-    tokens = re.findall(r"(?<![A-Za-z0-9_-])([A-Za-z][A-Za-z0-9._/\-]*)(?![A-Za-z0-9_-])", text)
-    candidates = [token.rstrip("，,。.;；") for token in tokens if _compact(token) not in ignore]
-    return candidates[0] if len(candidates) == 1 else None
+        result.setdefault("env", env)
+    if "title" not in result and not _extract_labeled(text):
+        result["title"] = _strip_value(re.sub(r"^(帮我|请|创建|新建|提一个|提个|bug|缺陷|\s)+", "", text, flags=re.I))
+    return result
 
 
-def _is_confirmed(text: str) -> bool:
-    lower_text = text.lower()
-    confirm_phrases = [
-        "确认",
-        "可以执行",
-        "同意执行",
-        "确认触发",
-        "确认执行",
-        "执行吧",
-        "开始吧",
-        "触发吧",
-        "纭",
-        "鍙互鎵ц",
-        "鍚屾剰鎵ц",
-        "纭瑙﹀彂",
-        "纭鎵ц",
-    ]
-    english_phrases = ["confirm", "yes", "go ahead", "run it", "trigger it"]
-    return any(phrase in text for phrase in confirm_phrases) or any(phrase in lower_text for phrase in english_phrases)
+def _match_first(text: str, patterns: list[str]) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return match.group(1)
+    return None
 
 
-def _missing_fields(job_alias: str | None, env: str | None, branch: str | None) -> list[str]:
-    return [field for field, value in {"job": job_alias, "env": env, "branch": branch}.items() if not value]
-
-
-def parse_jenkins_command(user_id: str, text: str) -> ParsedJenkinsCommand:
-    job_alias = _find_job(text)
-    env = _find_env(text, job_alias)
-    branch = _find_branch(text, job_alias, env)
-    extracted = {
-        "job": job_alias,
-        "env": env,
-        "branch": branch,
-        "confirmed": _is_confirmed(text),
-    }
-    missing = _missing_fields(job_alias, env, branch)
-    if missing:
-        return ParsedJenkinsCommand(request=None, extracted=extracted, missing_fields=missing)
-
-    return ParsedJenkinsCommand(
-        request=JenkinsTriggerRequest(
-            user_id=user_id,
-            job=job_alias,
-            env=env,
-            branch=branch,
-            confirmed=extracted["confirmed"],
-        ),
-        extracted=extracted,
-        missing_fields=[],
-    )
+def _strip_value(value: str) -> str:
+    return value.strip(" \t\r\n，,；;。")

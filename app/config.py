@@ -30,11 +30,6 @@ def users_config() -> dict[str, Any]:
 
 
 @lru_cache
-def bug_fields_config() -> dict[str, Any]:
-    return _read_yaml("bug_fields.yaml")
-
-
-@lru_cache
 def jenkins_settings() -> dict[str, str]:
     return {
         "base_url": getenv("JENKINS_BASE_URL", "").rstrip("/"),
@@ -43,8 +38,33 @@ def jenkins_settings() -> dict[str, str]:
     }
 
 
+def _env_id(name: str) -> str:
+    value = getenv(name, "").strip().rstrip("/")
+    return value.rsplit("/", 1)[-1] if "/" in value else value
+
+
 @lru_cache
-def assistant_settings() -> dict[str, str]:
+def teambition_settings() -> dict[str, str]:
     return {
-        "dingtalk_default_user_id": getenv("DINGTALK_DEFAULT_USER_ID", "u001"),
+        "base_url": getenv("TEAMBITION_BASE_URL", "https://open.teambition.com/api").rstrip("/"),
+        "app_id": getenv("TEAMBITION_APP_ID", ""),
+        "app_secret": getenv("TEAMBITION_APP_SECRET", ""),
+        "org_id": _env_id("TEAMBITION_ORG_ID"),
+        "operator_id": _env_id("TEAMBITION_OPERATOR_ID"),
+        "project_id": _env_id("TEAMBITION_PROJECT_ID"),
+        "tasklist_id": _env_id("TEAMBITION_TASKLIST_ID"),
+        "stage_id": _env_id("TEAMBITION_STAGE_ID"),
+        "taskflowstatus_id": _env_id("TEAMBITION_TASKFLOWSTATUS_ID"),
+        "sfc_id": _env_id("TEAMBITION_SFC_ID"),
+    }
+
+
+@lru_cache
+def dingtalk_settings() -> dict[str, str]:
+    return {
+        "app_id": getenv("DINGTALK_APP_ID", ""),
+        "agent_id": getenv("DINGTALK_AGENT_ID", ""),
+        "client_id": getenv("DINGTALK_CLIENT_ID", ""),
+        "client_secret": getenv("DINGTALK_CLIENT_SECRET", ""),
+        "robot_code": getenv("DINGTALK_ROBOT_CODE", ""),
     }

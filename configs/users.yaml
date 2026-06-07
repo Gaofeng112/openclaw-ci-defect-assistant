@@ -12,3 +12,8 @@ admin001:
   name: "Admin User"
   roles:
     - admin
+
+"36665056041252632":
+  name: "DingTalk QA User"
+  roles:
+    - qa
