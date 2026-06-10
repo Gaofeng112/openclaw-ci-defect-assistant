@@ -74,6 +74,8 @@ class BugCreateRequest(BaseModel):
     text: str | None = None
     fields: dict[str, Any] = Field(default_factory=dict)
     source: dict[str, Any] = Field(default_factory=dict)
+    confirmed: bool = False
+    confirm_token: str | None = None
 
 
 class BugCreateResponse(BaseModel):
@@ -84,3 +86,7 @@ class BugCreateResponse(BaseModel):
     task_id: str | None = None
     missing_fields: list[str] = Field(default_factory=list)
     fields: dict[str, Any] = Field(default_factory=dict)
+    needs_confirmation: bool = False
+    confirm_token: str | None = None
+    expires_in_seconds: int | None = None
+    preview: dict[str, Any] = Field(default_factory=dict)

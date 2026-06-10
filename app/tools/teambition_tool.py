@@ -1,43 +1,35 @@
-import base64
 import hashlib
-import hmac
 import json
 import time
+from datetime import datetime, timedelta, timezone
+from os import getenv
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
-from app.config import teambition_settings
+from app.auth import can_create_bug
+from app.config import BASE_DIR, teambition_settings
 from app.nlp import extract_bug_fields
 from app.schemas import BugCreateRequest, BugCreateResponse
 from app.session_store import clear_fields, load_fields, save_fields
+from app.tools.teambition_payload import build_v2_task_payload, load_evidence
 
 
 ACTION = "bug.create"
+CONFIRM_TTL_SECONDS = 300
+CONFIRM_DIR = BASE_DIR / "runtime" / "confirmations"
+EVIDENCE_PATH = Path(getenv("TEAMBITION_EVIDENCE_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "teambition_v4.teambition-fields.json")))
+HEADERS_PATH = Path(getenv("TEAMBITION_HEADERS_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "teambition_headers.json")))
+DEFAULT_FIELDS_PATH = Path(getenv("TEAMBITION_DEFAULT_FIELDS_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "dry_run_sample_fields.json")))
+TASK_CREATE_URL = "https://www.teambition.com/api/v2/tasks"
 REQUIRED_FIELDS = [
     "title",
-    "executor",
-    "start_time",
-    "due_time",
     "description",
-    "defect_category",
-    "priority",
-    "severity",
-    "sprint",
-    "tester",
-    "bug_or_legacy",
-    "resolver",
-    "environment",
-    "source",
-    "service_org",
-    "is_rd_project",
-    "related_product",
-    "related_project",
-    "related_database",
 ]
-REQUIRED_CONFIG_FIELDS = ["project_id", "tasklist_id"]
 DEFAULTS = {
-    "priority": "无关紧要",
+    "priority": 0,
     "severity": "一般",
     "bug_or_legacy": "BUG",
     "service_org": "集团公司",
@@ -47,8 +39,11 @@ SYSTEM_FIELDS = {"project_id", "tasklist_id"}
 
 
 def create_bug(request: BugCreateRequest) -> BugCreateResponse:
+    if not can_create_bug(request.user_id):
+        return BugCreateResponse(success=False, code="unauthorized", message="无权限创建缺陷")
+
     fields = _merged_fields(request)
-    missing = [name for name in REQUIRED_FIELDS if not fields.get(name)]
+    missing = [name for name in REQUIRED_FIELDS if _is_missing(fields.get(name))]
     if missing:
         save_fields(ACTION, request.conversation_id, _public_fields(fields))
         return BugCreateResponse(
@@ -58,19 +53,34 @@ def create_bug(request: BugCreateRequest) -> BugCreateResponse:
             missing_fields=missing,
             fields=_public_fields(fields),
         )
-    missing_config = [name for name in REQUIRED_CONFIG_FIELDS if not fields.get(name)]
-    if missing_config:
-        return BugCreateResponse(
-            success=False,
-            code="missing_config",
-            message=f"缺少 Teambition 配置: {', '.join(missing_config)}",
-            fields=_public_fields(fields),
-        )
 
     if _mock_enabled():
         return _mock_response(request, fields)
 
-    response = _create_task(fields)
+    payload, payload_error = _payload_for_fields(fields)
+    if payload_error:
+        save_fields(ACTION, request.conversation_id, _public_fields(fields))
+        return payload_error
+
+    if not request.confirmed:
+        token = _create_confirmation(request, fields)
+        save_fields(ACTION, request.conversation_id, _public_fields(fields))
+        return BugCreateResponse(
+            success=False,
+            code="needs_confirmation",
+            message="创建 Teambition 缺陷前需要确认",
+            fields=_public_fields(fields),
+            needs_confirmation=True,
+            confirm_token=token,
+            expires_in_seconds=CONFIRM_TTL_SECONDS,
+            preview=_preview(fields, payload),
+        )
+
+    confirm_error = _consume_confirmation(request, fields)
+    if confirm_error:
+        return confirm_error
+
+    response = _submit_task(fields, payload)
     if response.success:
         clear_fields(ACTION, request.conversation_id)
     else:
@@ -83,16 +93,16 @@ def _merged_fields(request: BugCreateRequest) -> dict[str, Any]:
     fields = DEFAULTS | {
         "project_id": settings["project_id"],
         "tasklist_id": settings["tasklist_id"],
-        "executor_id": settings["default_executor_id"],
     }
+    fields |= _default_business_fields()
     fields |= load_fields(ACTION, request.conversation_id)
     fields |= extract_bug_fields(request.text, request.fields)
+    fields = _apply_runtime_defaults(fields)
     return {key: value for key, value in fields.items() if value not in (None, "")}
 
 
 def _mock_enabled() -> bool:
-    settings = teambition_settings()
-    return not all(settings[key] for key in ["app_id", "app_secret", "org_id"]) or settings["app_id"].lower() == "xxx"
+    return getenv("TEAMBITION_MOCK") == "1"
 
 
 def _mock_response(request: BugCreateRequest, fields: dict[str, Any]) -> BugCreateResponse:
@@ -108,137 +118,262 @@ def _mock_response(request: BugCreateRequest, fields: dict[str, Any]) -> BugCrea
     )
 
 
-def _create_task(fields: dict[str, Any]) -> BugCreateResponse:
-    settings = teambition_settings()
-    payload = {
-        "content": fields["title"],
-        "projectId": fields["project_id"],
-        "tasklistId": fields["tasklist_id"],
-        "executorId": fields.get("executor") or settings["default_executor_id"],
-        "startDate": fields.get("start_time"),
-        "dueDate": fields.get("due_time"),
-        "note": _note(fields),
-        "priority": _priority(fields["priority"], settings["priority_map"]),
-        "stageId": settings["stage_id"],
-        "tfsId": settings["taskflowstatus_id"],
-        "sfcId": settings["sfc_id"],
-        "customfields": _customfields(fields, settings["customfields"]) or None,
-    }
+def _payload_for_fields(fields: dict[str, Any]) -> tuple[dict[str, Any] | None, BugCreateResponse | None]:
+    if not EVIDENCE_PATH.exists():
+        return None, BugCreateResponse(
+            success=False,
+            code="missing_config",
+            message=f"缺少 Teambition evidence 文件: {EVIDENCE_PATH}",
+            fields=_public_fields(fields),
+        )
     try:
-        with httpx.Client(timeout=20, trust_env=False) as client:
-            response = client.post(
-                f"{settings['base_url']}/v3/task/create",
-                headers=_headers(settings),
-                json={key: value for key, value in payload.items() if value is not None},
-            )
-            data = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        return BugCreateResponse(success=False, code="teambition_connection_failed", message=f"Teambition 连接失败: {exc}", fields=fields)
+        payload = build_v2_task_payload(fields, load_evidence(EVIDENCE_PATH))
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        return None, BugCreateResponse(
+            success=False,
+            code="invalid_config",
+            message=f"Teambition payload 构建失败: {exc}",
+            fields=_public_fields(fields),
+        )
+    return payload, None
 
-    if response.status_code != 200 or data.get("code") not in {0, 200}:
+
+def _submit_task(fields: dict[str, Any], payload: dict[str, Any]) -> BugCreateResponse:
+    headers, header_error = _load_headers(fields)
+    if header_error:
+        return header_error
+
+    try:
+        with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
+            response = client.post(TASK_CREATE_URL, headers=headers, json=payload)
+            data = _response_json(response)
+    except httpx.HTTPError as exc:
         return BugCreateResponse(
             success=False,
-            code=data.get("errorCode") or "teambition_error",
-            message=data.get("errorMessage") or f"Teambition 创建失败: HTTP {response.status_code}",
+            code="teambition_connection_failed",
+            message=f"Teambition 连接失败: {exc}",
             fields=_public_fields(fields),
         )
 
-    task = data.get("result") or {}
-    task_id = task.get("taskId") or task.get("id") or task.get("_id") or _find_task_id(fields)
+    if not 200 <= response.status_code < 300:
+        return BugCreateResponse(
+            success=False,
+            code="teambition_error",
+            message=_error_message(data, response.status_code),
+            fields=_public_fields(fields),
+        )
+
+    task_id = _task_id(data)
+    project_id = _project_id(data, payload, fields)
     return BugCreateResponse(
         success=True,
         code="created",
         message=f"已创建 Teambition 缺陷：{fields['title']}",
-        bug_url=_task_url(task_id),
+        bug_url=_task_url(project_id, task_id),
         task_id=task_id,
         fields=_public_fields(fields),
     )
 
 
-def _find_task_id(fields: dict[str, Any]) -> str | None:
-    settings = teambition_settings()
+def _load_headers(fields: dict[str, Any]) -> tuple[dict[str, str] | None, BugCreateResponse | None]:
+    if not HEADERS_PATH.exists():
+        return None, BugCreateResponse(
+            success=False,
+            code="missing_config",
+            message=f"缺少 Teambition headers 文件: {HEADERS_PATH}",
+            fields=_public_fields(fields),
+        )
     try:
-        with httpx.Client(timeout=20, trust_env=False) as client:
-            response = client.get(
-                f"{settings['base_url']}/v3/project/{fields['project_id']}/task/query",
-                headers=_headers(settings),
-            )
-            data = response.json()
-    except (httpx.HTTPError, ValueError):
-        return None
-    result = data.get("result")
-    if not isinstance(result, list):
-        return None
-    matches = [task for task in result if task.get("content") == fields["title"]]
-    return _task_id(matches[-1]) if matches else None
+        raw = json.loads(HEADERS_PATH.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        return None, BugCreateResponse(
+            success=False,
+            code="invalid_config",
+            message=f"Teambition headers 读取失败: {exc}",
+            fields=_public_fields(fields),
+        )
+    if not isinstance(raw, dict):
+        return None, BugCreateResponse(
+            success=False,
+            code="invalid_config",
+            message="Teambition headers 文件格式不正确",
+            fields=_public_fields(fields),
+        )
+    headers = {str(key): str(value) for key, value in raw.items() if value not in (None, "")}
+    lowered = {key.lower() for key in headers}
+    if "cookie" not in lowered and "authorization" not in lowered:
+        return None, BugCreateResponse(
+            success=False,
+            code="missing_auth_header",
+            message="缺少 Teambition 登录态，请先更新本地 Cookie",
+            fields=_public_fields(fields),
+        )
+    headers["Content-Type"] = "application/json"
+    headers.setdefault("x-request-id", uuid4().hex)
+    return headers, None
 
 
-def _headers(settings: dict[str, str]) -> dict[str, str]:
-    headers = {
-        "Authorization": f"Bearer {_app_token(settings['app_id'], settings['app_secret'])}",
-        "Content-Type": "application/json",
-        "X-Tenant-Type": "organization",
-        "X-Tenant-Id": settings["org_id"],
+def _preview(fields: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "action": ACTION,
+        "title": fields["title"],
+        "executor": fields.get("executor"),
+        "severity": fields.get("severity"),
+        "priority": payload.get("priority"),
+        "sprint": fields.get("sprint"),
+        "start_time": fields.get("start_time"),
+        "due_time": fields.get("due_time"),
+        "project_id": payload.get("_projectId"),
+        "tasklist_id": payload.get("_tasklistId"),
+        "customfields_count": len(payload.get("customfields") or []),
     }
-    if settings["operator_id"]:
-        headers["x-operator-id"] = settings["operator_id"]
-    return headers
 
 
-def _app_token(app_id: str, app_secret: str) -> str:
+def _request_hash(request: BugCreateRequest, fields: dict[str, Any]) -> str:
+    payload = {
+        "user_id": request.user_id,
+        "conversation_id": request.conversation_id,
+        "fields": _public_fields(fields),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _token_path(token: str) -> Path:
+    return CONFIRM_DIR / f"{token}.json"
+
+
+def _create_confirmation(request: BugCreateRequest, fields: dict[str, Any]) -> str:
+    token = f"confirm_{uuid4().hex}"
+    CONFIRM_DIR.mkdir(parents=True, exist_ok=True)
     now = int(time.time())
-    header = _b64url(json.dumps({"typ": "JWT", "alg": "HS256"}, separators=(",", ":")).encode())
-    payload = _b64url(json.dumps({"_appId": app_id, "iat": now, "exp": now + 3600}, separators=(",", ":")).encode())
-    signature = hmac.new(app_secret.encode(), f"{header}.{payload}".encode(), hashlib.sha256).digest()
-    return f"{header}.{payload}.{_b64url(signature)}"
+    payload = {
+        "token": token,
+        "action": ACTION,
+        "request_hash": _request_hash(request, fields),
+        "user_id": request.user_id,
+        "conversation_id": request.conversation_id,
+        "fields": _public_fields(fields),
+        "created_at": now,
+        "expires_at": now + CONFIRM_TTL_SECONDS,
+        "used": False,
+    }
+    _token_path(token).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return token
 
 
-def _b64url(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+def _consume_confirmation(request: BugCreateRequest, fields: dict[str, Any]) -> BugCreateResponse | None:
+    if not request.confirm_token:
+        return BugCreateResponse(success=False, code="missing_confirm_token", message="缺少确认 token", fields=_public_fields(fields))
+    path = _token_path(request.confirm_token)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 无效", fields=_public_fields(fields))
+
+    if data.get("action") != ACTION or data.get("used"):
+        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 已使用或不匹配", fields=_public_fields(fields))
+    if int(data.get("expires_at", 0)) < int(time.time()):
+        path.unlink(missing_ok=True)
+        return BugCreateResponse(success=False, code="expired_confirm_token", message="确认 token 已过期", fields=_public_fields(fields))
+    if data.get("user_id") != request.user_id or data.get("conversation_id") != request.conversation_id:
+        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 与请求不匹配", fields=_public_fields(fields))
+    if data.get("request_hash") != _request_hash(request, fields):
+        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 与当前字段不匹配", fields=_public_fields(fields))
+
+    data["used"] = True
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    path.unlink(missing_ok=True)
+    return None
 
 
-def _note(fields: dict[str, Any]) -> str:
-    return str(fields["description"])
+def find_pending_bug_confirmation(user_id: str, conversation_id: str | None) -> dict[str, Any] | None:
+    now = int(time.time())
+    latest: dict[str, Any] | None = None
+    for path in CONFIRM_DIR.glob("confirm_*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if data.get("action") != ACTION or data.get("used") or int(data.get("expires_at", 0)) < now:
+            continue
+        if data.get("user_id") != user_id or data.get("conversation_id") != conversation_id:
+            continue
+        if latest is None or int(data.get("created_at", 0)) > int(latest.get("created_at", 0)):
+            latest = data
+    return latest
+
+
+def _response_json(response: httpx.Response) -> Any:
+    try:
+        return response.json()
+    except ValueError:
+        return response.text[:1000]
+
+
+def _error_message(data: Any, status_code: int) -> str:
+    if isinstance(data, dict):
+        for key in ["message", "errorMessage", "error", "code"]:
+            value = data.get(key)
+            if value:
+                return f"Teambition 创建失败: {value}"
+    return f"Teambition 创建失败: HTTP {status_code}"
+
+
+def _task_id(data: Any) -> str | None:
+    if isinstance(data, dict):
+        return data.get("_id") or data.get("taskId") or data.get("id")
+    return None
+
+
+def _project_id(data: Any, payload: dict[str, Any], fields: dict[str, Any]) -> str | None:
+    if isinstance(data, dict):
+        project = data.get("project") or {}
+        if isinstance(project, dict) and project.get("_id"):
+            return str(project["_id"])
+        if data.get("_projectId"):
+            return str(data["_projectId"])
+    return str(payload.get("_projectId") or fields.get("project_id") or "")
+
+
+def _task_url(project_id: str | None, task_id: str | None) -> str | None:
+    if project_id and task_id:
+        return f"https://www.teambition.com/project/{project_id}/tasks/view/{task_id}"
+    return f"https://www.teambition.com/task/{task_id}" if task_id else None
 
 
 def _public_fields(fields: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if key not in SYSTEM_FIELDS}
 
 
-def _priority(severity: str, priority_map: dict[str, int]) -> int | None:
-    value = priority_map.get(str(severity))
-    return int(value) if value not in (None, "") else None
+def _is_missing(value: Any) -> bool:
+    return value is None or value == ""
 
 
-def _task_id(task: dict[str, Any]) -> str | None:
-    return task.get("taskId") or task.get("id") or task.get("_id")
+def _default_business_fields() -> dict[str, Any]:
+    if not DEFAULT_FIELDS_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(DEFAULT_FIELDS_PATH.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    defaults = {key: value for key, value in raw.items() if value not in (None, "")}
+    for key in ["title", "description", "start_time", "due_time"]:
+        defaults.pop(key, None)
+    return defaults
 
 
-def _customfields(fields: dict[str, Any], customfield_config: dict[str, str]) -> list[dict[str, Any]]:
-    labels = {
-        "defect_category": "缺陷分类",
-        "severity": "严重程度",
-        "tester": "测试人员",
-        "bug_or_legacy": "BUG/遗留",
-        "resolver": "缺陷解决人",
-        "environment": "缺陷环境",
-        "source": "缺陷来源",
-        "service_org": "服务组织",
-        "is_rd_project": "是否为研发立项",
-        "related_product": "相关产品",
-        "related_project": "相关项目",
-        "related_database": "相关数据库",
-    }
-    result = []
-    for name, cf_id in customfield_config.items():
-        if fields.get(name) and cf_id:
-            result.append({
-                "cfId": cf_id,
-                "customfieldName": labels.get(name, name),
-                "value": [{"title": str(fields[name])}],
-            })
+def _apply_runtime_defaults(fields: dict[str, Any]) -> dict[str, Any]:
+    result = dict(fields)
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    if _is_missing(result.get("start_time")):
+        result["start_time"] = _iso_utc(now)
+    if _is_missing(result.get("due_time")):
+        result["due_time"] = _iso_utc(now + timedelta(days=7))
     return result
 
 
-def _task_url(task_id: str | None) -> str | None:
-    return f"https://www.teambition.com/task/{task_id}" if task_id else None
+def _iso_utc(value: datetime) -> str:
+    return value.isoformat().replace("+00:00", "Z")

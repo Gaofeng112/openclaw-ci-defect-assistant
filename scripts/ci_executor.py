@@ -36,6 +36,8 @@ def execute(command: CiCommand) -> CiResult:
             text=command.text,
             fields=command.params,
             source=command.source,
+            confirmed=command.confirmed,
+            confirm_token=command.confirm_token,
         )))
     if command.action == "jenkins.query":
         return _query_result(command, "jenkins.trigger", "没有找到最近的 Jenkins 执行记录")
@@ -107,6 +109,10 @@ def _bug_result(command: CiCommand, response: BugCreateResponse) -> CiResult:
         task_id=response.task_id,
         missing_fields=response.missing_fields,
         extracted=response.fields,
+        needs_confirmation=response.needs_confirmation,
+        confirm_token=response.confirm_token,
+        expires_in_seconds=response.expires_in_seconds,
+        preview=response.preview,
     )
 
 

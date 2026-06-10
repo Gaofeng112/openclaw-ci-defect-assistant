@@ -11,6 +11,7 @@ from app.audit import write_audit
 from app.config import jobs_config
 from app.schemas import CiCommand, CiResult
 from app.tools.jenkins_tool import find_pending_confirmation
+from app.tools.teambition_tool import find_pending_bug_confirmation
 from scripts.ci_executor import execute
 
 
@@ -43,6 +44,19 @@ def main() -> int:
 def _confirmation_command(args: argparse.Namespace) -> CiCommand | None:
     if not _is_confirmation(args.text) or args.confirm_token:
         return None
+    bug_data = find_pending_bug_confirmation(args.user_id, args.conversation_id)
+    if bug_data:
+        return CiCommand(
+            conversation_id=args.conversation_id,
+            user_id=args.user_id,
+            action="bug.create",
+            text=args.text,
+            params=dict(bug_data.get("fields") or {}),
+            source={"platform": "dingtalk", "conversation_id": args.conversation_id, "reporter_user_id": args.user_id},
+            confirmed=True,
+            confirm_token=bug_data["token"],
+            wait_result=True,
+        )
     data = find_pending_confirmation(args.user_id, args.conversation_id)
     if not data:
         return None
@@ -93,9 +107,12 @@ def _action(text: str) -> str:
     bug_words = ["bug", "缺陷", "问题单", "teambition", "创建问题", "提交问题"]
     jenkins_words = ["jenkins", "ci", "流水线", "自动化", "冒烟", "接口测试", "构建", "跑一下", "执行", "触发"]
     query_words = ["查询", "查一下", "结果", "状态", "链接", "刚才", "跑完"]
+    trigger_words = ["执行", "触发", "跑一下", "构建"]
     bug_query = any(word in lowered for word in ["刚才", "查询", "查一下", "结果", "状态", "链接发"])
     if any(word.lower() in lowered for word in bug_words) and bug_query:
         return "bug.query"
+    if any(word.lower() in lowered for word in jenkins_words) and any(word in lowered for word in trigger_words):
+        return "jenkins.trigger"
     if any(word in lowered for word in query_words) and any(word.lower() in lowered for word in jenkins_words + ["跑完", "构建结果"]):
         return "jenkins.query"
     if any(word.lower() in lowered for word in bug_words):
@@ -152,6 +169,8 @@ def _reply(result: CiResult) -> str:
             lines.append(f"链接：{result.bug_url}")
         return "\n".join(lines)
     if result.code == "needs_confirmation":
+        if result.preview.get("action") == "bug.create":
+            return _bug_preview(result)
         return _jenkins_preview(result, "触发 Jenkins 前需要确认。请回复“确认”后继续。")
     if result.code in {"triggered", "build_success", "build_finished"}:
         return _jenkins_preview(result, result.message)
@@ -162,6 +181,24 @@ def _reply(result: CiResult) -> str:
     if result.code == "missing_fields":
         return f"还缺少：{', '.join(_field_label(name) for name in result.missing_fields)}。请补充后我继续创建。"
     return result.message
+
+
+def _bug_preview(result: CiResult) -> str:
+    lines = ["创建 Teambition 缺陷前需要确认。请回复“确认”后继续。"]
+    preview = result.preview
+    if preview.get("title"):
+        lines.append(f"标题：{preview['title']}")
+    if preview.get("executor"):
+        lines.append(f"执行者：{preview['executor']}")
+    if preview.get("severity"):
+        lines.append(f"严重程度：{preview['severity']}")
+    if preview.get("priority") is not None:
+        lines.append(f"优先级：{preview['priority']}")
+    if preview.get("sprint"):
+        lines.append(f"迭代：{preview['sprint']}")
+    if preview.get("due_time"):
+        lines.append(f"截止时间：{preview['due_time']}")
+    return "\n".join(lines)
 
 
 def _jenkins_preview(result: CiResult, first_line: str) -> str:

@@ -113,6 +113,45 @@ title, module, env, severity, steps, expected, actual
 https://www.teambition.com/task/{{task_id}}
 ```
 
+## Bug 创建确认
+
+如果执行器返回：
+
+```json
+{
+  "success": false,
+  "code": "needs_confirmation",
+  "confirm_token": "confirm_xxx",
+  "preview": {
+    "action": "bug.create",
+    "title": "登录失败",
+    "severity": "一般"
+  }
+}
+```
+
+把预览文案发给用户，等待用户明确回复“确认”。
+
+用户确认后，必须使用同一个 `conversation_id` 和 `user_id` 继续调用。优先直接复用上一次 bug.create 的字段，并带回 `confirm_token`：
+
+```json
+{
+  "request_id": "{{unique_request_id}}",
+  "conversation_id": "{{ding_conversation_id}}",
+  "user_id": "{{ding_user_id}}",
+  "action": "bug.create",
+  "text": "确认",
+  "params": {
+    "title": "{{title}}",
+    "severity": "{{severity}}"
+  },
+  "confirmed": true,
+  "confirm_token": "confirm_xxx"
+}
+```
+
+不要在用户未确认前直接创建缺陷。
+
 ## Jenkins
 
 当用户要跑 CI 或 Jenkins 时，生成：
