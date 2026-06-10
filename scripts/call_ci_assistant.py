@@ -80,7 +80,8 @@ def _confirmation_command(args: argparse.Namespace) -> CiCommand | None:
 
 
 def _is_confirmation(text: str) -> bool:
-    return text.strip().lower() in {"确认", "确定", "yes", "y", "ok"}
+    normalized = re.sub(r"\s+", "", text.strip().lower())
+    return normalized in {"确认", "确定", "yes", "y", "ok", "确认创建", "继续创建", "确认提交"}
 
 
 def _command(args: argparse.Namespace, action: str) -> CiCommand:
@@ -108,7 +109,10 @@ def _action(text: str) -> str:
     jenkins_words = ["jenkins", "ci", "流水线", "自动化", "冒烟", "接口测试", "构建", "跑一下", "执行", "触发"]
     query_words = ["查询", "查一下", "结果", "状态", "链接", "刚才", "跑完"]
     trigger_words = ["执行", "触发", "跑一下", "构建"]
+    bug_create_words = ["创建", "新建", "提交", "提bug", "提个bug", "提缺陷", "创建缺陷", "创建bug"]
     bug_query = any(word in lowered for word in ["刚才", "查询", "查一下", "结果", "状态", "链接发"])
+    if any(word.lower() in lowered for word in bug_words) and any(word in lowered for word in bug_create_words):
+        return "bug.create"
     if any(word.lower() in lowered for word in bug_words) and bug_query:
         return "bug.query"
     if any(word.lower() in lowered for word in jenkins_words) and any(word in lowered for word in trigger_words):

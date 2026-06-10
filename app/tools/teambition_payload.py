@@ -32,18 +32,20 @@ def load_evidence(path: str | Path) -> dict[str, Any]:
 def build_v2_task_payload(fields: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
     payload = _template_payload(evidence)
     remove_reusable_note_tokens(payload)
+    template_customfields = _customfield_templates(payload)
     _set_if_present(payload, "content", fields, "title")
     _set_if_present(payload, "note", fields, "description")
     _set_if_present(payload, "_executorId", fields, "executor")
     _set_if_present(payload, "startDate", fields, "start_time")
     _set_if_present(payload, "dueDate", fields, "due_time")
-    _set_if_present(payload, "_sprintId", fields, "sprint")
+    _set_sprint_id(payload, fields, evidence)
     if "priority" in fields:
         payload["priority"] = _priority_value(fields["priority"])
 
-    customfields = payload.get("customfields")
-    if not isinstance(customfields, list):
+    if not isinstance(payload.get("customfields"), list):
         raise ValueError("template payload does not contain customfields")
+    customfields: list[dict[str, Any]] = []
+    payload["customfields"] = customfields
 
     for name in CUSTOMFIELD_NAMES:
         if name not in fields:
@@ -51,10 +53,8 @@ def build_v2_task_payload(fields: dict[str, Any], evidence: dict[str, Any]) -> d
         customfield_id = _customfield_id(evidence, name)
         if not customfield_id:
             raise ValueError(f"missing customfield_id for {name}")
-        item = _find_customfield(customfields, customfield_id)
-        if item is None:
-            item = {"_customfieldId": customfield_id}
-            customfields.append(item)
+        item = _empty_customfield(template_customfields.get(customfield_id), customfield_id)
+        customfields.append(item)
         _set_customfield_value(item, fields[name], evidence, name)
     return payload
 
@@ -79,6 +79,37 @@ def _set_if_present(payload: dict[str, Any], target: str, fields: dict[str, Any]
         payload[target] = value
 
 
+def _customfield_templates(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    customfields = payload.get("customfields")
+    if not isinstance(customfields, list):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for item in customfields:
+        if not isinstance(item, dict):
+            continue
+        customfield_id = item.get("_customfieldId")
+        if customfield_id:
+            result[str(customfield_id)] = copy.deepcopy(item)
+    return result
+
+
+def _empty_customfield(template: dict[str, Any] | None, customfield_id: str) -> dict[str, Any]:
+    item = copy.deepcopy(template) if isinstance(template, dict) else {"_customfieldId": customfield_id}
+    item["_customfieldId"] = customfield_id
+    item["value"] = []
+    if "values" in item:
+        item["values"] = []
+    return item
+
+
+def _set_sprint_id(payload: dict[str, Any], fields: dict[str, Any], evidence: dict[str, Any]) -> None:
+    value = fields.get("sprint")
+    if value in (None, ""):
+        return
+    sprint_id = _sprint_id(value, evidence)
+    payload["_sprintId"] = sprint_id
+
+
 def _priority_value(value: Any) -> int:
     if isinstance(value, int):
         return value
@@ -86,6 +117,31 @@ def _priority_value(value: Any) -> int:
     if re.fullmatch(r"-?\d+", text):
         return int(text)
     raise ValueError("priority must be a numeric Teambition priority value for dry-run")
+
+
+def _sprint_id(value: Any, evidence: dict[str, Any]) -> str | None:
+    text = str(value).strip()
+    if not text:
+        return None
+    for sprint in evidence.get("sprints") or []:
+        sprint_id = str(sprint.get("id") or "").strip()
+        sprint_name = str(sprint.get("name") or "").strip()
+        if text in {sprint_id, sprint_name}:
+            return sprint_id or None
+    normalized = _normalize_name(text)
+    for sprint in evidence.get("sprints") or []:
+        sprint_id = str(sprint.get("id") or "").strip()
+        sprint_name = str(sprint.get("name") or "").strip()
+        sprint_normalized = _normalize_name(sprint_name)
+        if normalized and sprint_normalized and (normalized in sprint_normalized or sprint_normalized in normalized):
+            return sprint_id or None
+    if re.fullmatch(r"[0-9a-f]{24}", text, re.I):
+        return text
+    return None
+
+
+def _normalize_name(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
 
 
 def _customfield_id(evidence: dict[str, Any], name: str) -> str | None:
