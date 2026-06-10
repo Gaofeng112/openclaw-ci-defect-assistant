@@ -93,7 +93,8 @@ def _action(text: str) -> str:
     bug_words = ["bug", "缺陷", "问题单", "teambition", "创建问题", "提交问题"]
     jenkins_words = ["jenkins", "ci", "流水线", "自动化", "冒烟", "接口测试", "构建", "跑一下", "执行", "触发"]
     query_words = ["查询", "查一下", "结果", "状态", "链接", "刚才", "跑完"]
-    if any(word.lower() in lowered for word in bug_words) and any(word in lowered for word in query_words):
+    bug_query = any(word in lowered for word in ["刚才", "查询", "查一下", "结果", "状态", "链接发"])
+    if any(word.lower() in lowered for word in bug_words) and bug_query:
         return "bug.query"
     if any(word in lowered for word in query_words) and any(word.lower() in lowered for word in jenkins_words + ["跑完", "构建结果"]):
         return "jenkins.query"
@@ -181,12 +182,24 @@ def _jenkins_preview(result: CiResult, first_line: str) -> str:
 def _field_label(name: str) -> str:
     return {
         "title": "标题",
-        "module": "模块",
-        "env": "环境",
+        "executor": "执行者",
+        "start_time": "开始时间",
+        "due_time": "截止时间",
+        "description": "备注",
+        "defect_category": "缺陷分类",
+        "priority": "优先级",
         "severity": "严重程度",
-        "steps": "复现步骤",
-        "expected": "预期结果",
-        "actual": "实际结果",
+        "sprint": "迭代",
+        "tester": "测试人员",
+        "bug_or_legacy": "BUG/遗留",
+        "resolver": "缺陷解决人",
+        "environment": "缺陷环境",
+        "source": "缺陷来源",
+        "service_org": "服务组织",
+        "is_rd_project": "是否为研发立项",
+        "related_product": "相关产品",
+        "related_project": "相关项目",
+        "related_database": "相关数据库",
         "project_id": "项目",
         "tasklist_id": "任务分组",
     }.get(name, name)

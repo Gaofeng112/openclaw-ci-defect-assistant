@@ -14,11 +14,36 @@ from app.session_store import clear_fields, load_fields, save_fields
 
 
 ACTION = "bug.create"
-REQUIRED_FIELDS = ["title", "module", "severity", "env", "steps", "expected", "actual"]
+REQUIRED_FIELDS = [
+    "title",
+    "executor",
+    "start_time",
+    "due_time",
+    "description",
+    "defect_category",
+    "priority",
+    "severity",
+    "sprint",
+    "tester",
+    "bug_or_legacy",
+    "resolver",
+    "environment",
+    "source",
+    "service_org",
+    "is_rd_project",
+    "related_product",
+    "related_project",
+    "related_database",
+]
 REQUIRED_CONFIG_FIELDS = ["project_id", "tasklist_id"]
-DEFAULTS = {"severity": "普通"}
-NOTE_FIELDS = ["module", "severity", "env", "steps", "expected", "actual", "description"]
-SYSTEM_FIELDS = {"project_id", "tasklist_id", "executor_id"}
+DEFAULTS = {
+    "priority": "无关紧要",
+    "severity": "一般",
+    "bug_or_legacy": "BUG",
+    "service_org": "集团公司",
+    "related_product": "药智数据企业版",
+}
+SYSTEM_FIELDS = {"project_id", "tasklist_id"}
 
 
 def create_bug(request: BugCreateRequest) -> BugCreateResponse:
@@ -89,9 +114,11 @@ def _create_task(fields: dict[str, Any]) -> BugCreateResponse:
         "content": fields["title"],
         "projectId": fields["project_id"],
         "tasklistId": fields["tasklist_id"],
-        "executorId": fields.get("executor_id") or settings["default_executor_id"],
+        "executorId": fields.get("executor") or settings["default_executor_id"],
+        "startDate": fields.get("start_time"),
+        "dueDate": fields.get("due_time"),
         "note": _note(fields),
-        "priority": _priority(fields["severity"], settings["priority_map"]),
+        "priority": _priority(fields["priority"], settings["priority_map"]),
         "stageId": settings["stage_id"],
         "tfsId": settings["taskflowstatus_id"],
         "sfcId": settings["sfc_id"],
@@ -117,7 +144,7 @@ def _create_task(fields: dict[str, Any]) -> BugCreateResponse:
         )
 
     task = data.get("result") or {}
-    task_id = task.get("id") or _find_task_id(fields)
+    task_id = task.get("taskId") or task.get("id") or task.get("_id") or _find_task_id(fields)
     return BugCreateResponse(
         success=True,
         code="created",
@@ -139,8 +166,11 @@ def _find_task_id(fields: dict[str, Any]) -> str | None:
             data = response.json()
     except (httpx.HTTPError, ValueError):
         return None
-    matches = [task for task in data.get("result", []) if task.get("content") == fields["title"]]
-    return matches[-1].get("id") if matches else None
+    result = data.get("result")
+    if not isinstance(result, list):
+        return None
+    matches = [task for task in result if task.get("content") == fields["title"]]
+    return _task_id(matches[-1]) if matches else None
 
 
 def _headers(settings: dict[str, str]) -> dict[str, str]:
@@ -168,32 +198,36 @@ def _b64url(data: bytes) -> str:
 
 
 def _note(fields: dict[str, Any]) -> str:
-    labels = {
-        "module": "模块",
-        "severity": "严重程度",
-        "env": "环境",
-        "steps": "复现步骤",
-        "expected": "预期结果",
-        "actual": "实际结果",
-        "description": "补充说明",
-    }
-    return "\n\n".join(f"{labels[name]}：{fields[name]}" for name in NOTE_FIELDS if fields.get(name))
+    return str(fields["description"])
 
 
 def _public_fields(fields: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if key not in SYSTEM_FIELDS}
 
 
-def _priority(severity: str, priority_map: dict[str, int]) -> int:
-    return int(priority_map.get(str(severity), -10))
+def _priority(severity: str, priority_map: dict[str, int]) -> int | None:
+    value = priority_map.get(str(severity))
+    return int(value) if value not in (None, "") else None
+
+
+def _task_id(task: dict[str, Any]) -> str | None:
+    return task.get("taskId") or task.get("id") or task.get("_id")
 
 
 def _customfields(fields: dict[str, Any], customfield_config: dict[str, str]) -> list[dict[str, Any]]:
     labels = {
-        "env": "环境",
-        "api": "接口",
+        "defect_category": "缺陷分类",
         "severity": "严重程度",
-        "module": "模块",
+        "tester": "测试人员",
+        "bug_or_legacy": "BUG/遗留",
+        "resolver": "缺陷解决人",
+        "environment": "缺陷环境",
+        "source": "缺陷来源",
+        "service_org": "服务组织",
+        "is_rd_project": "是否为研发立项",
+        "related_product": "相关产品",
+        "related_project": "相关项目",
+        "related_database": "相关数据库",
     }
     result = []
     for name, cf_id in customfield_config.items():

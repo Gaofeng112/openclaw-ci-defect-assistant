@@ -1,17 +1,9 @@
 base_url: "https://open.teambition.com/api"
 project_id: "tb_project_id"
-bug_sfc_id: "tb_bug_sfc_id"
-default_stage_id: "tb_stage_id"
+bug_sfc_id: ""
+default_stage_id: ""
 default_tasklist_id: "tb_tasklist_id"
-default_executor_id: "tb_user_default"
+default_executor_id: ""
 taskflowstatus_id: ""
-priority_map:
-  紧急: 10
-  较高: 0
-  普通: -10
-  较低: -20
-customfields:
-  env: "cf_env"
-  api: "cf_api"
-  severity: "cf_severity"
-  module: "cf_module"
+priority_map: {}
+customfields: {}

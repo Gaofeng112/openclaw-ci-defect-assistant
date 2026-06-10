@@ -4,29 +4,38 @@ from typing import Any
 
 FIELD_ALIASES = {
     "title": ("title", "标题", "问题", "缺陷", "bug"),
-    "module": ("module", "模块", "功能", "页面"),
-    "severity": ("severity", "优先级", "严重程度", "级别"),
-    "env": ("env", "环境", "测试环境"),
+    "executor": ("executor", "执行者", "执行人", "处理人", "负责人"),
+    "start_time": ("start_time", "开始时间", "开始日期"),
+    "due_time": ("due_time", "截止时间", "截止日期", "到期时间"),
+    "description": ("description", "描述", "详情", "备注"),
+    "defect_category": ("defect_category", "缺陷分类", "分类"),
+    "priority": ("priority", "优先级"),
+    "severity": ("severity", "严重程度", "级别"),
+    "sprint": ("sprint", "迭代"),
+    "tester": ("tester", "测试人员", "测试人"),
+    "bug_or_legacy": ("bug_or_legacy", "BUG/遗留", "bug_or_legacy"),
+    "resolver": ("resolver", "缺陷解决人", "解决人"),
+    "environment": ("environment", "缺陷环境", "环境", "测试环境"),
+    "source": ("source", "缺陷来源", "来源"),
+    "service_org": ("service_org", "服务组织"),
+    "is_rd_project": ("is_rd_project", "是否为研发立项", "研发立项"),
+    "related_product": ("related_product", "相关产品", "产品"),
+    "related_project": ("related_project", "相关项目"),
+    "related_database": ("related_database", "相关数据库", "数据库"),
     "steps": ("steps", "步骤", "复现步骤", "操作步骤"),
     "expected": ("expected", "期望", "预期", "预期结果"),
     "actual": ("actual", "实际", "实际结果", "现象"),
-    "description": ("description", "描述", "详情", "备注"),
 }
 
 SEVERITY_WORDS = {
-    "较低": "较低",
-    "低": "较低",
-    "普通": "普通",
-    "一般": "普通",
-    "中": "普通",
-    "高": "较高",
-    "较高": "较高",
-    "紧急": "紧急",
-    "严重": "紧急",
-    "p0": "紧急",
-    "p1": "较高",
-    "p2": "普通",
-    "p3": "较低",
+    "致命": "致命",
+    "严重": "严重",
+    "一般": "一般",
+    "轻微": "轻微",
+    "p0": "致命",
+    "p1": "严重",
+    "p2": "一般",
+    "p3": "轻微",
 }
 
 
@@ -44,6 +53,10 @@ def _clean(fields: dict[str, Any]) -> dict[str, Any]:
 def _normalize(fields: dict[str, Any]) -> dict[str, Any]:
     if "severity" in fields:
         fields["severity"] = SEVERITY_WORDS.get(str(fields["severity"]).lower(), fields["severity"])
+    if "environment" not in fields and fields.get("env"):
+        fields["environment"] = fields.pop("env")
+    if "description" not in fields and any(fields.get(name) for name in ["steps", "actual", "expected"]):
+        fields["description"] = _description_from_parts(fields)
     return fields
 
 
@@ -61,9 +74,9 @@ def _extract_freeform(text: str) -> dict[str, str]:
         if word in lower:
             result.setdefault("severity", severity)
             break
-    env = _match_first(text, [r"(?:环境|在)\s*([a-zA-Z0-9_-]+)\s*(?:环境)?", r"\b(env|test|pre|prod|uat)\b"])
-    if env:
-        result.setdefault("env", env)
+    environment = _match_first(text, [r"(?:环境|在)\s*([a-zA-Z0-9_-]+)\s*(?:环境)?", r"\b(env|test|pre|prod|uat)\b"])
+    if environment:
+        result.setdefault("environment", environment)
     if "title" not in result and not _extract_labeled(text):
         result["title"] = _strip_value(re.sub(r"^(帮我|请|创建|新建|提一个|提个|bug|缺陷|\s)+", "", text, flags=re.I))
     return result
@@ -79,3 +92,11 @@ def _match_first(text: str, patterns: list[str]) -> str | None:
 
 def _strip_value(value: str) -> str:
     return value.strip(" \t\r\n，,；;。")
+
+
+def _description_from_parts(fields: dict[str, Any]) -> str:
+    return "\n\n".join([
+        f"【步骤】\n{fields.get('steps', '')}",
+        f"【结果】\n{fields.get('actual', '')}",
+        f"【期望】\n{fields.get('expected', '')}",
+    ])

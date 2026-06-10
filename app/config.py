@@ -53,6 +53,10 @@ def _config_id(config: dict[str, Any], name: str) -> str:
     return value.rsplit("/", 1)[-1] if "/" in value else value
 
 
+def _setting_id(config: dict[str, Any], env_name: str, config_name: str) -> str:
+    return _env_id(env_name) or _config_id(config, config_name)
+
+
 @lru_cache
 def teambition_settings() -> dict[str, Any]:
     config = teambition_config()
@@ -62,12 +66,12 @@ def teambition_settings() -> dict[str, Any]:
         "app_secret": getenv("TEAMBITION_APP_SECRET", ""),
         "org_id": _env_id("TEAMBITION_ORG_ID"),
         "operator_id": _env_id("TEAMBITION_OPERATOR_ID"),
-        "project_id": _config_id(config, "project_id"),
-        "tasklist_id": _config_id(config, "default_tasklist_id"),
-        "stage_id": _config_id(config, "default_stage_id"),
-        "taskflowstatus_id": _config_id(config, "taskflowstatus_id"),
-        "sfc_id": _config_id(config, "bug_sfc_id"),
-        "default_executor_id": _config_id(config, "default_executor_id"),
+        "project_id": _setting_id(config, "TEAMBITION_PROJECT_ID", "project_id"),
+        "tasklist_id": _setting_id(config, "TEAMBITION_TASKLIST_ID", "default_tasklist_id"),
+        "stage_id": _setting_id(config, "TEAMBITION_STAGE_ID", "default_stage_id"),
+        "taskflowstatus_id": _setting_id(config, "TEAMBITION_TASKFLOWSTATUS_ID", "taskflowstatus_id"),
+        "sfc_id": _setting_id(config, "TEAMBITION_BUG_SFC_ID", "bug_sfc_id"),
+        "default_executor_id": _setting_id(config, "TEAMBITION_DEFAULT_EXECUTOR_ID", "default_executor_id"),
         "priority_map": config.get("priority_map") or {},
         "customfields": config.get("customfields") or {},
     }

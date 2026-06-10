@@ -1,0 +1,311 @@
+# Teambition defect form mapping draft.
+# This file is not loaded by runtime yet. It is a reviewed draft for later development.
+# Sources:
+# - C:\2_PROJECT\proj\config-v1.md from teacher-captured interface data.
+# - Read-only OpenAPI checks on the existing local test project.
+# - Prior read-only UI inspection of the company Teambition bug form.
+
+source_status:
+  company_project_openapi:
+    project_id: "6539bbd14c06f79e66aaf526"
+    status: "blocked"
+    reason: "Current .env Teambition app returned: Resource not belong to tenant."
+  chrome_read:
+    status: "not_run_this_round"
+    reason: "Chrome was not running. Extension and native host are installed and enabled."
+  old_created_tasks_read:
+    status: "read_only_done"
+    note: "Only GET /v3/project/{projectId}/task/query was used. No create API was called."
+    observed_old_project:
+      tasklist_id: "6a219252d859396314d11b8c"
+      scenariofieldconfig_id: "6a219252d859396314d11b9f"
+      taskflow_status_ids:
+        completed: "6a219252d859396314d11b89"
+        open: "6a219252d859396314d11b8a"
+      stage_id: "6a219252d859396314d11b95"
+      priority_values_seen:
+        - -10
+        - 0
+      visible: "projectMembers"
+
+project:
+  project_id: "6539bbd14c06f79e66aaf526"
+  project_name: "药智数据企业版"
+
+bug_create:
+  scenariofieldconfig_id: "6539bbd2e9176a0f484edd97"
+  tasklist_id: ""            # Missing for company project.
+  taskflow_id: "65558b56d28952fb4b0e6fea"
+  default_status_id: "65558b56d28952fb4b0e6fed"  # 新
+  default_executor_id: ""    # Empty means keep "待认领" if API allows it.
+  default_visibility: "projectMembers"
+
+defaults:
+  service_org:
+    name: "集团公司"
+    id: "6639e626ab4e0db27ad2a73a"
+  related_product:
+    name: "药智数据企业版"
+    id: "6539d7928d6e01f163c72ec9"
+  priority:
+    name: "无关紧要"
+    value: null              # System priority needs company-project verification.
+  severity:
+    name: "一般"
+    id: "6555677efc3a4d9339e25390"
+  bug_or_legacy:
+    name: "BUG"
+    id: "65573fb93faa10c4e782def7"
+  source:
+    name: "研发中心-质量"
+    id: "655481fe84906a98b2fa9f20"
+  environment:
+    name: "测服"
+    id: "6554838d2467cc38b216288e"
+
+required_business_fields:
+  - title
+  - executor
+  - start_time
+  - due_time
+  - description
+  - defect_category
+  - priority
+  - severity
+  - sprint
+  - tester
+  - bug_or_legacy
+  - resolver
+  - environment
+  - source
+  - service_org
+  - is_rd_project
+  - related_product
+  - related_project
+  - related_database
+
+fields:
+  title:
+    label: "标题"
+    system_field: "content"
+    required: true
+
+  executor:
+    label: "执行者"
+    system_field: "executorId"
+    required: true
+    type: "member"
+    default_rule: "待认领 or configured member"
+
+  description:
+    label: "备注"
+    system_field: "note"
+    required: true
+    format: "按模板写【步骤】【结果】【期望】"
+    template: |
+      【步骤】
+      {steps}
+
+      【结果】
+      {actual}
+
+      【期望】
+      {expected}
+
+  start_time:
+    label: "开始时间"
+    system_field: "startDate"
+    required: true
+    default_rule: "ask_user"
+
+  due_time:
+    label: "截止时间"
+    system_field: "dueDate"
+    required: true
+    default_rule: "ask_user"
+
+  defect_category:
+    label: "缺陷分类"
+    customfield_id: "6539bbd2973d59497934d82b"
+    required: true
+    type: "single_select"
+    options:
+      未分类缺陷: "6539bbd2442b12533cec2781"
+      企业版线上缺陷: "655c883f7a05e313791db7fa"
+      企业版迭代缺陷: "65f7bb7acbd56712c864bc06"
+      数据工坊: "655c7258442b12533c934c40"
+
+  priority:
+    label: "优先级"
+    system_field: "priority"
+    required: true
+    type: "system_priority"
+    options:
+      无关紧要: null
+      低: null
+      中: null
+      高: null
+    note: "Old local test project saw priority -10 and 0, but company project values are not verified."
+
+  severity:
+    label: "严重程度"
+    customfield_id: "6555e742f86dcdc430c7c789"
+    required: true
+    type: "single_select"
+    options:
+      致命: "6555677efc3a4d9339e2538e"
+      严重: "6555677efc3a4d9339e2538f"
+      一般: "6555677efc3a4d9339e25390"
+      轻微: "6555677efc3a4d9339e25391"
+
+  sprint:
+    label: "迭代"
+    system_field: "sprintId"
+    required: true
+    type: "sprint"
+    options: {}
+    missing: "Need sprint list and default sprintId from company project."
+
+  tester:
+    label: "测试人员"
+    customfield_id: "6554647c0489507fbc113f4b"
+    required: true
+    type: "member"
+
+  bug_or_legacy:
+    label: "BUG/遗留"
+    customfield_id: "65573fb93faa10c4e782def6"
+    required: true
+    type: "single_select"
+    options:
+      BUG: "65573fb93faa10c4e782def7"
+      遗留: "65573fb93faa10c4e782def8"
+
+  resolver:
+    label: "缺陷解决人"
+    customfield_id: "657c1b6f1d0cc6d0bd4bb496"
+    required: true
+    type: "member_multi"
+
+  environment:
+    label: "缺陷环境"
+    customfield_id: "6554838d2467cc38b216288d"
+    required: true
+    type: "single_select"
+    options:
+      测服: "6554838d2467cc38b216288e"
+      预发布: "6554838d2467cc38b216288f"
+      正服: "6554838d2467cc38b2162890"
+
+  source:
+    label: "缺陷来源"
+    customfield_id: "655481fe84906a98b2fa9f1a"
+    required: true
+    type: "single_select"
+    options:
+      用户反馈: "655481fe84906a98b2fa9f1b"
+      研发技术-测试: "655481fe84906a98b2fa9f1c"
+      研发中心-技术: "655481fe84906a98b2fa9f1d"
+      研发中心-数据: "655481fe84906a98b2fa9f1e"
+      研发中心-产品: "655481fe84906a98b2fa9f1f"
+      研发中心-质量: "655481fe84906a98b2fa9f20"
+      业务部门发现: "655481fe84906a98b2fa9f21"
+      其他: "655481fe84906a98b2fa9f22"
+
+  service_org:
+    label: "服务组织"
+    customfield_id: "6572c5c2f4c55ed200f358ba"
+    required: true
+    type: "single_select"
+    default: "集团公司"
+    options:
+      集团公司: "6639e626ab4e0db27ad2a73a"
+
+  is_rd_project:
+    label: "是否为研发立项"
+    customfield_id: "65702610133f957377f62824"
+    required: true
+    type: "single_select"
+    options:
+      是: "655dbba6f42754564b4ab5ff"
+      否: "655dbba6f42754564b4ab600"
+
+  related_product:
+    label: "相关产品"
+    customfield_id: "6555e36e4588a3b146fd4b8b"
+    required: true
+    type: "single_select"
+    default: "药智数据企业版"
+    options:
+      药智数据企业版: "6539d7928d6e01f163c72ec9"
+
+  related_project:
+    label: "相关项目"
+    customfield_id: "6555e36e4588a3b146fd4b73"
+    required: true
+    type: "single_select"
+    options: {}
+    missing: "Need allowed project options and default."
+
+  related_database:
+    label: "相关数据库"
+    customfield_id: "653a41ce70aef2d3091d4218"
+    required: true
+    type: "single_or_multi_select"
+    options: {}
+    missing: "Need allowed database options and default."
+
+optional_fields:
+  defect_owner:
+    label: "缺陷责任人"
+    type: "member"
+  defect_reason:
+    label: "缺陷原因"
+  defect_reason_detail:
+    label: "缺陷原因（详细）"
+  defect_solution:
+    label: "缺陷解决办法"
+  special_test_type:
+    label: "专项测试类别"
+  customer_feedback_code:
+    label: "企典客户问题反馈编码"
+  os:
+    label: "操作系统"
+  platform:
+    label: "软件平台"
+  test_method:
+    label: "测试方式"
+  defect_type:
+    label: "缺陷类型"
+  recurrence_rule:
+    label: "重现规律"
+  discovery_stage:
+    label: "发现阶段"
+  online_incident:
+    label: "线上事故"
+  planned_work_hours:
+    label: "计划工时"
+  actual_work_hours:
+    label: "实际工时"
+  rd_work_hour_approval:
+    label: "研发计划工时审批"
+  detailed_task_type:
+    label: "任务类型（详细）"
+  test_plan:
+    label: "测试计划"
+
+members:
+  # Fill with Teambition user IDs before real creation is enabled.
+  default_tester: ""
+  default_resolver: ""
+  default_executor: ""
+  by_name: {}
+
+still_missing_for_real_create:
+  - "company project tasklist_id"
+  - "company project priority numeric values"
+  - "sprintId list and default sprint"
+  - "tester/resolver/executor member IDs"
+  - "related_project option IDs"
+  - "related_database option IDs"
+  - "confirmation whether executorId may be omitted to keep 待认领"
