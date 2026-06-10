@@ -7,3 +7,6 @@ __pycache__/
 .ruff_cache/
 uvicorn.*.log
 runtime/
+HAR/
+*.har
+docs/url2spec_*.md

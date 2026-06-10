@@ -4,6 +4,7 @@
 # - C:\2_PROJECT\proj\config-v1.md from teacher-captured interface data.
 # - Read-only OpenAPI checks on the existing local test project.
 # - Prior read-only UI inspection of the company Teambition bug form.
+# - URL2SPEC captured docs: docs/url2spec_api_doc_19.md and docs/url2spec_test_report_19.md.
 
 source_status:
   company_project_openapi:
@@ -27,9 +28,43 @@ source_status:
         - -10
         - 0
       visible: "projectMembers"
+  url2spec_capture:
+    status: "partial"
+    note: "Captured useful request shapes and several IDs, but not enough to replace the real company bug form mapping."
+    docs:
+      - "docs/url2spec_api_doc_19.md"
+      - "docs/url2spec_test_report_19.md"
+    confirmed_ids:
+      organization_id: "61cc0d32e6b157bfbb39f309"
+      project_id: "6539bbd14c06f79e66aaf526"
+      observed_user_id: "6a14ffee2dfe137452f632a9"
+    observed_uncertain_ids:
+      customfield_popup_id: "6554658a1e4983d3f404b3d3"
+      customfield_popup_sfc_id: "6539bbd2e9176a0f484eddc2"
+      customfieldentity_choices_id: "655331a78e5e1d8680403b49"
+    useful_endpoints:
+      member_search:
+        method: "GET"
+        path: "/api/tasks/new/members/search"
+        query: "q=&scope=executor.assign&projectId={project_id}&organizationId={organization_id}"
+        use_for: "Resolve executor/tester/resolver member IDs after browser cookie is valid."
+        last_seen_status: "401 InvalidCookie in URL2SPEC replay"
+      customfield_choices:
+        method: "GET"
+        path: "/api/v2/projects/{project_id}/customfieldentities/choices"
+        query: "customfieldId={customfield_id}&customfieldentityId={customfieldentity_id}"
+        use_for: "Resolve option IDs for related_project and related_database after the correct field/entity IDs are known."
+        last_seen_status: "401 InvalidCookie in URL2SPEC replay"
+      customfield_popup:
+        method: "GET"
+        path: "/api/customfields/{customfield_id}/popup"
+        query: "objectType=task&_organizationId={organization_id}&_projectId={project_id}&sfcId={sfc_id}"
+        use_for: "Inspect popup options for a specific custom field if permission allows."
+        last_seen_status: "403 NoPermission in URL2SPEC replay"
 
 project:
   project_id: "6539bbd14c06f79e66aaf526"
+  organization_id: "61cc0d32e6b157bfbb39f309"
   project_name: "药智数据企业版"
 
 bug_create:
