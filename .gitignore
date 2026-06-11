@@ -22,3 +22,6 @@ docs/url2spec_*.md
 target.txt
 zhixing.md
 scripts/probe_*.py
+
+openclaw-plugin/node_modules/
+openclaw-plugin/dist/

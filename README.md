@@ -38,7 +38,7 @@ $env:CI_DEFECT_ASSISTANT_HOME="C:\path\to\openclaw-ci-defect-assistant"
 
 ## Chat Entry
 
-Use this command from OpenClaw:
+Use this command from OpenClaw-compatible wrappers:
 
 ```powershell
 ci-defect-assistant chat --user-id "{{ding_user_id}}" --conversation-id "{{ding_conversation_id}}" --text "{{original_user_text}}"
@@ -53,7 +53,21 @@ It prints JSON:
 }
 ```
 
-For existing OpenClaw configs, the old script path still works:
+For current OpenClaw integration, use the plugin tool instead of shell:
+
+```text
+ci_defect_assistant_chat
+```
+
+Plugin arguments:
+
+```text
+user_id: "{{ding_user_id}}"
+conversation_id: "{{ding_conversation_id}}"
+text: "{{original_user_text}}"
+```
+
+For existing configs, the old script path still works as a compatibility entry:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\call_ci_assistant.py --user-id "{{ding_user_id}}" --conversation-id "{{ding_conversation_id}}" --text "{{original_user_text}}"

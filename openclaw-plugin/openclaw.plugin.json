@@ -1,0 +1,25 @@
+{
+  "id": "openclaw-ci-defect-assistant",
+  "name": "OpenClaw CI Defect Assistant",
+  "description": "Route Jenkins and Teambition ChatOps requests through ci-defect-assistant.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "projectRoot": {
+        "type": "string"
+      },
+      "command": {
+        "type": "string"
+      }
+    }
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "ci_defect_assistant_chat"
+    ]
+  }
+}
