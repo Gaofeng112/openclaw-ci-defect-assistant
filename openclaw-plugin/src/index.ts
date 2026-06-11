@@ -1,8 +1,13 @@
 import { spawn } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 
-const DEFAULT_PROJECT_ROOT = "C:\\2_PROJECT\\proj\\openclaw-ci-defect-assistant";
+const DEFAULT_PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const DEFAULT_COMMAND = process.platform === "win32"
+  ? resolve(DEFAULT_PROJECT_ROOT, ".venv", "Scripts", "ci-defect-assistant.exe")
+  : resolve(DEFAULT_PROJECT_ROOT, ".venv", "bin", "ci-defect-assistant");
 const ConfigSchema = Type.Object({
   projectRoot: Type.Optional(Type.String()),
   command: Type.Optional(Type.String()),
@@ -23,7 +28,7 @@ export default defineToolPlugin({
         text: Type.String({ description: "Original user message text." }),
       }),
       execute: async ({ user_id, conversation_id, text }, config) => {
-        return runCli(config.command || "ci-defect-assistant", config.projectRoot || DEFAULT_PROJECT_ROOT, [
+        return runCli(config.command || DEFAULT_COMMAND, config.projectRoot || DEFAULT_PROJECT_ROOT, [
           "chat",
           "--user-id",
           user_id,
