@@ -1,9 +1,0 @@
-1、课题名称：基于OpenClaw的CI流水线触发与缺陷助手（优先级 A）
-需求背景：
-目前自动化测试程序管理在jenkins上，需要测试人员手动执行触发，希望实现钉钉机器人@触发；
-缺陷管理目前是在teambition平台，提bug需要测试人员手动创建并填入各类必填信息，希望实现钉钉机器人@创建。
-预期交付成果：
-钉钉测试助手机器人：能使用自然语言执行jenkins上已经设置好的任务，能使用自然语言创建bug（必填项需校验并在会话中补充判断）。具备权限管控功能（防止误触发）。
-参考资料：
-jenkins地址：http://jenkins8090.yaozh.com:8090/ 
-teambition开放平台：https://open.teambition.com/docs/documents/68ad4901f7d70fb6fb33f159

@@ -4,7 +4,6 @@
 # - C:\2_PROJECT\proj\config-v1.md from teacher-captured interface data.
 # - Read-only OpenAPI checks on the existing local test project.
 # - Prior read-only UI inspection of the company Teambition bug form.
-# - URL2SPEC captured docs: docs/url2spec_api_doc_19.md and docs/url2spec_test_report_19.md.
 # - Live field capture and create/query probes on 2026-06-10 and 2026-06-11.
 
 source_status:
@@ -32,9 +31,6 @@ source_status:
   url2spec_capture:
     status: "partial"
     note: "Captured useful request shapes and several IDs, but not enough to replace the real company bug form mapping."
-    docs:
-      - "docs/url2spec_api_doc_19.md"
-      - "docs/url2spec_test_report_19.md"
     confirmed_ids:
       organization_id: "61cc0d32e6b157bfbb39f309"
       project_id: "6539bbd14c06f79e66aaf526"
