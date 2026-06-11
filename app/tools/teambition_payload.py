@@ -23,6 +23,22 @@ CUSTOMFIELD_NAMES = [
 ]
 
 MEMBER_FIELDS = {"tester", "resolver"}
+KNOWN_CHOICE_VALUES = {
+    "defect_category": {
+        "655c8ace7c4907e734c6a851": {
+            "title": "企业版线上缺陷 / 线上缺陷",
+            "_id": "655c8ace7c4907e734c6a851",
+        },
+        "企业版线上缺陷 / 线上缺陷": {
+            "title": "企业版线上缺陷 / 线上缺陷",
+            "_id": "655c8ace7c4907e734c6a851",
+        },
+        "线上缺陷": {
+            "title": "企业版线上缺陷 / 线上缺陷",
+            "_id": "655c8ace7c4907e734c6a851",
+        },
+    },
+}
 
 
 def load_evidence(path: str | Path) -> dict[str, Any]:
@@ -33,6 +49,11 @@ def build_v2_task_payload(fields: dict[str, Any], evidence: dict[str, Any]) -> d
     payload = _template_payload(evidence)
     remove_reusable_note_tokens(payload)
     template_customfields = _customfield_templates(payload)
+    _set_if_present(payload, "_projectId", fields, "project_id")
+    _set_if_present(payload, "_tasklistId", fields, "tasklist_id")
+    _set_if_present(payload, "_stageId", fields, "stage_id")
+    _set_if_present(payload, "_taskflowstatusId", fields, "taskflowstatus_id")
+    _set_if_present(payload, "_scenariofieldconfigId", fields, "sfc_id")
     _set_if_present(payload, "content", fields, "title")
     _set_if_present(payload, "note", fields, "description")
     _set_if_present(payload, "_executorId", fields, "executor")
@@ -112,11 +133,15 @@ def _set_sprint_id(payload: dict[str, Any], fields: dict[str, Any], evidence: di
 
 def _priority_value(value: Any) -> int:
     if isinstance(value, int):
-        return value
-    text = str(value).strip()
-    if re.fullmatch(r"-?\d+", text):
-        return int(text)
-    raise ValueError("priority must be a numeric Teambition priority value for dry-run")
+        priority = value
+    else:
+        text = str(value).strip()
+        if not re.fullmatch(r"-?\d+", text):
+            raise ValueError("priority must be a numeric Teambition priority value")
+        priority = int(text)
+    if priority in {0, 1, 2, 3, 4, 5}:
+        return priority
+    raise ValueError("priority must be one of 0, 1, 2, 3, 4, 5")
 
 
 def _sprint_id(value: Any, evidence: dict[str, Any]) -> str | None:
@@ -190,6 +215,9 @@ def _member_value(value: Any, evidence: dict[str, Any], template: dict[str, Any]
 
 
 def _choice_value(value: Any, evidence: dict[str, Any], name: str, template: dict[str, Any], keep_id: bool) -> dict[str, Any]:
+    known_match = _known_choice_value(value, name)
+    if known_match:
+        return known_match
     if isinstance(value, dict):
         choice_id = value.get("_id") or value.get("id")
         result = {"title": value.get("title") or value.get("name")}
@@ -207,6 +235,21 @@ def _choice_value(value: Any, evidence: dict[str, Any], name: str, template: dic
                 result["_id"] = choice.get("id")
             return result
     return {"title": text}
+
+
+def _known_choice_value(value: Any, name: str) -> dict[str, Any] | None:
+    choices = KNOWN_CHOICE_VALUES.get(name)
+    if not choices:
+        return None
+    if isinstance(value, dict):
+        choice_id = str(value.get("_id") or value.get("id") or "").strip()
+        title = str(value.get("title") or value.get("name") or "").strip()
+        matched = choices.get(choice_id) or choices.get(title)
+    else:
+        matched = choices.get(str(value).strip())
+    if not matched:
+        return None
+    return dict(matched)
 
 
 def _template_choice(text: str, template: dict[str, Any]) -> dict[str, Any] | None:

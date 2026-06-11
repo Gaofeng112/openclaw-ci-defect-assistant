@@ -5,6 +5,7 @@
 # - Read-only OpenAPI checks on the existing local test project.
 # - Prior read-only UI inspection of the company Teambition bug form.
 # - URL2SPEC captured docs: docs/url2spec_api_doc_19.md and docs/url2spec_test_report_19.md.
+# - Live field capture and create/query probes on 2026-06-10 and 2026-06-11.
 
 source_status:
   company_project_openapi:
@@ -61,6 +62,9 @@ source_status:
         query: "objectType=task&_organizationId={organization_id}&_projectId={project_id}&sfcId={sfc_id}"
         use_for: "Inspect popup options for a specific custom field if permission allows."
         last_seen_status: "403 NoPermission in URL2SPEC replay"
+  live_field_capture:
+    status: "first_stage_verified"
+    note: "priority 0-5 and defect_category full object were verified by real create/query probes."
 
 project:
   project_id: "6539bbd14c06f79e66aaf526"
@@ -69,10 +73,11 @@ project:
 
 bug_create:
   scenariofieldconfig_id: "6539bbd2e9176a0f484edd97"
-  tasklist_id: ""            # Missing for company project.
+  tasklist_id: "6539bbd2e9176a0f484edd4d"
+  stage_id: "6539bbd2e9176a0f484edd67"
   taskflow_id: "65558b56d28952fb4b0e6fea"
   default_status_id: "65558b56d28952fb4b0e6fed"  # 新
-  default_executor_id: ""    # Empty means keep "待认领" if API allows it.
+  default_executor_id: "6a14ffee2dfe137452f632a9"
   default_visibility: "projectMembers"
 
 defaults:
@@ -84,19 +89,22 @@ defaults:
     id: "6539d7928d6e01f163c72ec9"
   priority:
     name: "无关紧要"
-    value: null              # System priority needs company-project verification.
+    value: 0
   severity:
-    name: "一般"
-    id: "6555677efc3a4d9339e25390"
+    name: "轻微"
+    id: "6555677efc3a4d9339e25391"
   bug_or_legacy:
     name: "BUG"
     id: "65573fb93faa10c4e782def7"
   source:
-    name: "研发中心-质量"
-    id: "655481fe84906a98b2fa9f20"
+    name: "用户反馈"
+    id: "655481fe84906a98b2fa9f1b"
   environment:
     name: "测服"
     id: "6554838d2467cc38b216288e"
+  is_rd_project:
+    name: "是"
+    id: "655dbba6f42754564b4ab5ff"
 
 required_business_fields:
   - title
@@ -163,10 +171,13 @@ fields:
     label: "缺陷分类"
     customfield_id: "6539bbd2973d59497934d82b"
     required: true
-    type: "single_select"
+    type: "commongroup"
+    default:
+      title: "企业版线上缺陷 / 线上缺陷"
+      id: "655c8ace7c4907e734c6a851"
     options:
       未分类缺陷: "6539bbd2442b12533cec2781"
-      企业版线上缺陷: "655c883f7a05e313791db7fa"
+      企业版线上缺陷 / 线上缺陷: "655c8ace7c4907e734c6a851"
       企业版迭代缺陷: "65f7bb7acbd56712c864bc06"
       数据工坊: "655c7258442b12533c934c40"
 
@@ -176,11 +187,8 @@ fields:
     required: true
     type: "system_priority"
     options:
-      无关紧要: null
-      低: null
-      中: null
-      高: null
-    note: "Old local test project saw priority -10 and 0, but company project values are not verified."
+      values: [0, 1, 2, 3, 4, 5]
+    note: "Real company project probes verified 0-5. Do not map Chinese labels until labels are confirmed."
 
   severity:
     label: "严重程度"
@@ -198,8 +206,9 @@ fields:
     system_field: "sprintId"
     required: true
     type: "sprint"
-    options: {}
-    missing: "Need sprint list and default sprintId from company project."
+    default: "线上缺陷迭代"
+    options:
+      线上缺陷迭代: "6577dbefe126aba741240518"
 
   tester:
     label: "测试人员"
@@ -279,16 +288,20 @@ fields:
     customfield_id: "6555e36e4588a3b146fd4b73"
     required: true
     type: "single_select"
-    options: {}
-    missing: "Need allowed project options and default."
+    default: "中国上市器械筛选系统（已结项）"
+    options:
+      中国上市器械筛选系统（已结项）: "65dd88076d4c9d4204a5cd92"
+    note: "First-stage default only. Full option list still needs business review if users need free selection."
 
   related_database:
     label: "相关数据库"
     customfield_id: "653a41ce70aef2d3091d4218"
     required: true
     type: "single_or_multi_select"
-    options: {}
-    missing: "Need allowed database options and default."
+    default: "DRG试点医院数据"
+    options:
+      DRG试点医院数据: "655b00457b8b7e59ce39edf0"
+    note: "First-stage default only. Full option list still needs business review if users need free selection."
 
 optional_fields:
   defect_owner:
@@ -330,17 +343,15 @@ optional_fields:
     label: "测试计划"
 
 members:
-  # Fill with Teambition user IDs before real creation is enabled.
-  default_tester: ""
-  default_resolver: ""
-  default_executor: ""
+  # First-stage default member. Do not expand name matching until business confirms the member list.
+  default_tester: "6a14ffee2dfe137452f632a9"
+  default_resolver: "6a14ffee2dfe137452f632a9"
+  default_executor: "6a14ffee2dfe137452f632a9"
+  display_names:
+    "6a14ffee2dfe137452f632a9": "高峰"
   by_name: {}
 
 still_missing_for_real_create:
-  - "company project tasklist_id"
-  - "company project priority numeric values"
-  - "sprintId list and default sprint"
-  - "tester/resolver/executor member IDs"
-  - "related_project option IDs"
-  - "related_database option IDs"
+  - "business confirmation whether the default related_project is acceptable"
+  - "business confirmation whether the default related_database is acceptable"
   - "confirmation whether executorId may be omitted to keep 待认领"

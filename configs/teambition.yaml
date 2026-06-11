@@ -1,9 +1,9 @@
 base_url: "https://open.teambition.com/api"
-project_id: "tb_project_id"
-bug_sfc_id: ""
-default_stage_id: ""
-default_tasklist_id: "tb_tasklist_id"
-default_executor_id: ""
-taskflowstatus_id: ""
+project_id: "6539bbd14c06f79e66aaf526"
+bug_sfc_id: "6539bbd2e9176a0f484edd97"
+default_stage_id: "6539bbd2e9176a0f484edd67"
+default_tasklist_id: "6539bbd2e9176a0f484edd4d"
+default_executor_id: "6a14ffee2dfe137452f632a9"
+taskflowstatus_id: "65558b56d28952fb4b0e6fed"
 priority_map: {}
 customfields: {}

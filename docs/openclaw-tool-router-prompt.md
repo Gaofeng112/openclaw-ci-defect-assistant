@@ -103,7 +103,11 @@ title, module, env, severity, steps, expected, actual
 如果执行器返回 `success=true`，回复：
 
 ```text
-已创建 Teambition 缺陷：{{title}}
+已创建 Teambition 缺陷
+标题：{{title}}
+任务号：{{task_id}}
+项目：{{project}}
+迭代：{{sprint}}
 链接：{{bug_url}}
 ```
 
@@ -125,12 +129,23 @@ https://www.teambition.com/task/{{task_id}}
   "preview": {
     "action": "bug.create",
     "title": "登录失败",
-    "severity": "一般"
+    "severity": "轻微",
+    "display": {
+      "project": "药智数据企业版",
+      "type": "缺陷",
+      "title": "登录失败",
+      "executor": "高峰",
+      "defect_category": "企业版线上缺陷 / 线上缺陷",
+      "severity": "轻微",
+      "priority": "0",
+      "sprint": "线上缺陷迭代",
+      "due_time": "2026-06-18 11:02"
+    }
   }
 }
 ```
 
-把预览文案发给用户，等待用户明确回复“确认”。
+把 `reply` 字段直接发给用户，等待用户明确回复“确认”。不要自己重新拼裸 ID 文案。
 
 用户确认后，必须使用同一个 `conversation_id` 和 `user_id` 继续调用。优先直接复用上一次 bug.create 的字段，并带回 `confirm_token`：
 

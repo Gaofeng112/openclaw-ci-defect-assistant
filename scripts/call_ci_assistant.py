@@ -179,29 +179,47 @@ def _reply(result: CiResult) -> str:
     if result.code in {"triggered", "build_success", "build_finished"}:
         return _jenkins_preview(result, result.message)
     if result.success and result.code == "created":
-        title = result.extracted.get("title") or "缺陷"
+        display = result.extracted.get("display") or {}
+        title = display.get("title") or result.extracted.get("title") or "缺陷"
         link = result.bug_url or (f"https://www.teambition.com/task/{result.task_id}" if result.task_id else "")
-        return f"已创建 Teambition 缺陷：{title}\n链接：{link}".strip()
+        lines = ["已创建 Teambition 缺陷", f"标题：{title}"]
+        if result.task_id:
+            lines.append(f"任务号：{result.task_id}")
+        if display.get("project"):
+            lines.append(f"项目：{display['project']}")
+        if display.get("sprint"):
+            lines.append(f"迭代：{display['sprint']}")
+        if link:
+            lines.append(f"链接：{link}")
+        return "\n".join(lines)
     if result.code == "missing_fields":
         return f"还缺少：{', '.join(_field_label(name) for name in result.missing_fields)}。请补充后我继续创建。"
     return result.message
 
 
 def _bug_preview(result: CiResult) -> str:
-    lines = ["创建 Teambition 缺陷前需要确认。请回复“确认”后继续。"]
     preview = result.preview
-    if preview.get("title"):
-        lines.append(f"标题：{preview['title']}")
-    if preview.get("executor"):
-        lines.append(f"执行者：{preview['executor']}")
-    if preview.get("severity"):
-        lines.append(f"严重程度：{preview['severity']}")
-    if preview.get("priority") is not None:
-        lines.append(f"优先级：{preview['priority']}")
-    if preview.get("sprint"):
-        lines.append(f"迭代：{preview['sprint']}")
-    if preview.get("due_time"):
-        lines.append(f"截止时间：{preview['due_time']}")
+    display = preview.get("display") or {}
+    lines = ["准备创建 Teambition 缺陷，请确认："]
+    if display.get("project"):
+        lines.append(f"项目：{display['project']}")
+    if display.get("type"):
+        lines.append(f"类型：{display['type']}")
+    if display.get("title") or preview.get("title"):
+        lines.append(f"标题：{display.get('title') or preview['title']}")
+    if display.get("executor"):
+        lines.append(f"负责人：{display['executor']}")
+    if display.get("defect_category"):
+        lines.append(f"缺陷分类：{display['defect_category']}")
+    if display.get("severity"):
+        lines.append(f"严重程度：{display['severity']}")
+    if display.get("priority") is not None:
+        lines.append(f"优先级：{display['priority']}")
+    if display.get("sprint"):
+        lines.append(f"迭代：{display['sprint']}")
+    if display.get("due_time"):
+        lines.append(f"截止时间：{display['due_time']}")
+    lines.append("回复“确认”创建；要修改就直接补充字段。")
     return "\n".join(lines)
 
 

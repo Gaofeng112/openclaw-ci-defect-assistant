@@ -10,7 +10,7 @@ from uuid import uuid4
 import httpx
 
 from app.auth import can_create_bug
-from app.config import BASE_DIR, teambition_settings
+from app.config import BASE_DIR, teambition_bug_form_config, teambition_settings
 from app.nlp import extract_bug_fields
 from app.schemas import BugCreateRequest, BugCreateResponse
 from app.session_store import clear_fields, load_fields, save_fields
@@ -22,7 +22,6 @@ CONFIRM_TTL_SECONDS = 300
 CONFIRM_DIR = BASE_DIR / "runtime" / "confirmations"
 EVIDENCE_PATH = Path(getenv("TEAMBITION_EVIDENCE_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "teambition_v4.teambition-fields.json")))
 HEADERS_PATH = Path(getenv("TEAMBITION_HEADERS_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "teambition_headers.json")))
-DEFAULT_FIELDS_PATH = Path(getenv("TEAMBITION_DEFAULT_FIELDS_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "dry_run_sample_fields.json")))
 TASK_CREATE_URL = "https://www.teambition.com/api/v2/tasks"
 REQUIRED_FIELDS = [
     "title",
@@ -35,7 +34,7 @@ DEFAULTS = {
     "service_org": "集团公司",
     "related_product": "药智数据企业版",
 }
-SYSTEM_FIELDS = {"project_id", "tasklist_id"}
+SYSTEM_FIELDS = {"project_id", "tasklist_id", "stage_id", "taskflowstatus_id", "sfc_id"}
 
 
 def create_bug(request: BugCreateRequest) -> BugCreateResponse:
@@ -93,6 +92,9 @@ def _merged_fields(request: BugCreateRequest) -> dict[str, Any]:
     fields = DEFAULTS | {
         "project_id": settings["project_id"],
         "tasklist_id": settings["tasklist_id"],
+        "stage_id": settings["stage_id"],
+        "taskflowstatus_id": settings["taskflowstatus_id"],
+        "sfc_id": settings["sfc_id"],
     }
     fields |= _default_business_fields()
     fields |= load_fields(ACTION, request.conversation_id)
@@ -171,7 +173,7 @@ def _submit_task(fields: dict[str, Any], payload: dict[str, Any]) -> BugCreateRe
         message=f"已创建 Teambition 缺陷：{fields['title']}",
         bug_url=_task_url(project_id, task_id),
         task_id=task_id,
-        fields=_public_fields(fields),
+        fields=_response_fields(fields, payload),
     )
 
 
@@ -226,6 +228,7 @@ def _preview(fields: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
         "project_id": payload.get("_projectId"),
         "tasklist_id": payload.get("_tasklistId"),
         "customfields_count": len(payload.get("customfields") or []),
+        "display": _display_fields(fields, payload),
     }
 
 
@@ -346,23 +349,112 @@ def _public_fields(fields: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if key not in SYSTEM_FIELDS}
 
 
+def _response_fields(fields: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    result = _public_fields(fields)
+    result["display"] = _display_fields(fields, payload)
+    return result
+
+
+def _display_fields(fields: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    form = teambition_bug_form_config()
+    project = form.get("project") or {}
+    return {
+        "project": project.get("project_name") or payload.get("_projectId"),
+        "type": "缺陷",
+        "title": fields.get("title"),
+        "executor": _display_field_value("executor", fields.get("executor"), form),
+        "defect_category": _display_field_value("defect_category", fields.get("defect_category"), form),
+        "severity": _display_field_value("severity", fields.get("severity"), form),
+        "priority": str(payload.get("priority")) if payload.get("priority") is not None else None,
+        "sprint": _display_field_value("sprint", fields.get("sprint"), form),
+        "start_time": _display_time(fields.get("start_time")),
+        "due_time": _display_time(fields.get("due_time")),
+        "customfields_count": len(payload.get("customfields") or []),
+    }
+
+
+def _display_field_value(name: str, value: Any, form: dict[str, Any]) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, dict):
+        return value.get("title") or value.get("name") or value.get("_id") or value.get("id")
+    text = str(value)
+    if name in {"executor", "tester", "resolver"}:
+        display_names = (form.get("members") or {}).get("display_names") or {}
+        return display_names.get(text) or text
+    field = (form.get("fields") or {}).get(name) or {}
+    for title, option_id in (field.get("options") or {}).items():
+        if text in {str(title), str(option_id)}:
+            return str(title)
+    return text
+
+
+def _display_time(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    return parsed.astimezone(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
+
+
 def _is_missing(value: Any) -> bool:
     return value is None or value == ""
 
 
 def _default_business_fields() -> dict[str, Any]:
-    if not DEFAULT_FIELDS_PATH.exists():
-        return {}
-    try:
-        raw = json.loads(DEFAULT_FIELDS_PATH.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    defaults = {key: value for key, value in raw.items() if value not in (None, "")}
-    for key in ["title", "description", "start_time", "due_time"]:
-        defaults.pop(key, None)
-    return defaults
+    form = teambition_bug_form_config()
+    fields = form.get("fields") or {}
+    defaults = form.get("defaults") or {}
+    members = form.get("members") or {}
+    bug_create = form.get("bug_create") or {}
+    result = {
+        "executor": bug_create.get("default_executor_id") or members.get("default_executor"),
+        "tester": members.get("default_tester"),
+        "resolver": members.get("default_resolver"),
+        "defect_category": _field_object_default(fields, "defect_category"),
+        "priority": (defaults.get("priority") or {}).get("value"),
+        "sprint": _field_choice_default(fields, "sprint"),
+        "severity": _named_default(defaults, "severity"),
+        "bug_or_legacy": _field_choice_default(fields, "bug_or_legacy") or _named_default(defaults, "bug_or_legacy"),
+        "environment": _named_default(defaults, "environment"),
+        "source": _named_default(defaults, "source"),
+        "service_org": _field_choice_default(fields, "service_org") or _named_default(defaults, "service_org"),
+        "is_rd_project": _named_default(defaults, "is_rd_project"),
+        "related_product": _field_choice_default(fields, "related_product") or _named_default(defaults, "related_product"),
+        "related_project": _field_choice_default(fields, "related_project"),
+        "related_database": _field_choice_default(fields, "related_database"),
+    }
+    return {key: value for key, value in result.items() if value not in (None, "")}
+
+
+def _named_default(defaults: dict[str, Any], name: str) -> Any:
+    value = defaults.get(name)
+    if isinstance(value, dict):
+        return value.get("name") or value.get("value") or value.get("id")
+    return value
+
+
+def _field_choice_default(fields: dict[str, Any], name: str) -> Any:
+    field = fields.get(name) or {}
+    default = field.get("default")
+    options = field.get("options") or {}
+    if isinstance(default, str) and default in options:
+        return options[default]
+    return default
+
+
+def _field_object_default(fields: dict[str, Any], name: str) -> dict[str, Any] | None:
+    default = (fields.get(name) or {}).get("default")
+    if not isinstance(default, dict):
+        return None
+    item_id = default.get("_id") or default.get("id")
+    title = default.get("title") or default.get("name")
+    if item_id and title:
+        return {"title": title, "_id": item_id}
+    return None
 
 
 def _apply_runtime_defaults(fields: dict[str, Any]) -> dict[str, Any]:
