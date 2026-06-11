@@ -106,6 +106,30 @@ configs/teambition_bug_form.v1.yaml  同一套缺陷表单可直接用
 
 如果换了 Teambition 项目或缺陷表单，才需要重新确认项目 ID、任务列表 ID、字段 ID、选项 ID、人员 ID。
 
+## Teambition 登录态
+
+创建 Teambition 缺陷前，需要在本机生成登录态文件：
+
+```text
+runtime/teambition_har/teambition_headers.json
+```
+
+Windows：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\save_teambition_cookie.py
+```
+
+Mac / Linux：
+
+```bash
+./.venv/bin/python scripts/save_teambition_cookie.py
+```
+
+按脚本提示在浏览器登录 Teambition，脚本会保存 Cookie / Token。
+
+这个文件只放本机，不要提交，也不要发给别人。
+
 ## OpenClaw 工具
 
 插件暴露的工具名：
