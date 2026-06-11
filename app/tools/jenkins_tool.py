@@ -1,9 +1,6 @@
-import hashlib
-import json
 import re
 import time
 from os import getenv
-from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -11,10 +8,10 @@ import httpx
 
 from app.auth import can_trigger_job
 from app.config import jenkins_settings, jobs_config
+from app.confirmation_store import CONFIRM_TTL_SECONDS, consume_confirmation, create_confirmation, find_pending_confirmation as find_pending
 from app.schemas import JenkinsTriggerRequest, JenkinsTriggerResponse
 
-CONFIRM_TTL_SECONDS = 300
-CONFIRM_DIR = Path(__file__).resolve().parent.parent.parent / "runtime" / "confirmations"
+ACTION = "jenkins.trigger"
 
 
 def _jobs() -> dict:
@@ -120,29 +117,8 @@ def _mock_trigger(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse:
     )
 
 
-def _request_hash(request: JenkinsTriggerRequest) -> str:
-    payload = {
-        "user_id": request.user_id,
-        "conversation_id": request.conversation_id,
-        "job": request.job,
-        "env": request.env,
-        "branch": request.branch,
-        "parameters": request.parameters,
-    }
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(raw).hexdigest()
-
-
-def _token_path(token: str) -> Path:
-    return CONFIRM_DIR / f"{token}.json"
-
-
-def _create_confirmation(request: JenkinsTriggerRequest) -> str:
-    token = f"confirm_{uuid4().hex}"
-    CONFIRM_DIR.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "token": token,
-        "request_hash": _request_hash(request),
+def _confirm_payload(request: JenkinsTriggerRequest) -> dict:
+    return {
         "user_id": request.user_id,
         "conversation_id": request.conversation_id,
         "job": request.job,
@@ -150,52 +126,20 @@ def _create_confirmation(request: JenkinsTriggerRequest) -> str:
         "branch": request.branch,
         "parameters": request.parameters,
         "wait_result": request.wait_result,
-        "created_at": int(time.time()),
-        "expires_at": int(time.time()) + CONFIRM_TTL_SECONDS,
-        "used": False,
     }
-    _token_path(token).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    return token
+
+
+def _create_confirmation(request: JenkinsTriggerRequest) -> str:
+    return create_confirmation(ACTION, _confirm_payload(request))
 
 
 def _consume_confirmation(request: JenkinsTriggerRequest) -> JenkinsTriggerResponse | None:
-    if not request.confirm_token:
-        return JenkinsTriggerResponse(success=False, code="missing_confirm_token", message="缺少确认 token")
-    path = _token_path(request.confirm_token)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 无效")
-
-    if data.get("used"):
-        return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 已使用")
-    if int(data.get("expires_at", 0)) < int(time.time()):
-        path.unlink(missing_ok=True)
-        return JenkinsTriggerResponse(success=False, code="expired_confirm_token", message="确认 token 已过期")
-    if data.get("user_id") != request.user_id or data.get("conversation_id") != request.conversation_id or data.get("request_hash") != _request_hash(request):
-        return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message="确认 token 与请求不匹配")
-
-    data["used"] = True
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    path.unlink(missing_ok=True)
-    return None
+    message = consume_confirmation(request.confirm_token, ACTION, _confirm_payload(request))
+    return JenkinsTriggerResponse(success=False, code="invalid_confirm_token", message=message) if message else None
 
 
 def find_pending_confirmation(user_id: str, conversation_id: str | None) -> dict | None:
-    now = int(time.time())
-    latest: dict | None = None
-    for path in CONFIRM_DIR.glob("confirm_*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if data.get("used") or int(data.get("expires_at", 0)) < now:
-            continue
-        if data.get("user_id") != user_id or data.get("conversation_id") != conversation_id:
-            continue
-        if latest is None or int(data.get("created_at", 0)) > int(latest.get("created_at", 0)):
-            latest = data
-    return latest
+    return find_pending(ACTION, user_id, conversation_id)
 
 
 def _real_trigger(request: JenkinsTriggerRequest, job: dict) -> JenkinsTriggerResponse:

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import yaml
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(getenv("CI_DEFECT_ASSISTANT_HOME") or Path(__file__).resolve().parent.parent).resolve()
 CONFIG_DIR = BASE_DIR / "configs"
 
 load_dotenv(BASE_DIR / ".env")

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openclaw-ci-defect-assistant"
+version = "0.1.0"
+description = "Portable CLI for OpenClaw Jenkins and Teambition ChatOps"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx",
+  "pydantic>=2",
+  "pyyaml",
+  "python-dotenv",
+]
+
+[project.optional-dependencies]
+browser = ["playwright"]
+dingtalk = ["dingtalk-stream"]
+
+[project.scripts]
+ci-defect-assistant = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

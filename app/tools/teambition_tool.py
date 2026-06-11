@@ -11,6 +11,7 @@ import httpx
 
 from app.auth import can_create_bug
 from app.config import BASE_DIR, teambition_bug_form_config, teambition_settings
+from app.confirmation_store import CONFIRM_TTL_SECONDS, consume_confirmation, create_confirmation, find_pending_confirmation as find_pending
 from app.nlp import extract_bug_fields
 from app.schemas import BugCreateRequest, BugCreateResponse
 from app.session_store import clear_fields, load_fields, save_fields
@@ -18,8 +19,6 @@ from app.tools.teambition_payload import build_v2_task_payload, load_evidence
 
 
 ACTION = "bug.create"
-CONFIRM_TTL_SECONDS = 300
-CONFIRM_DIR = BASE_DIR / "runtime" / "confirmations"
 EVIDENCE_PATH = Path(getenv("TEAMBITION_EVIDENCE_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "teambition_v4.teambition-fields.json")))
 HEADERS_PATH = Path(getenv("TEAMBITION_HEADERS_PATH", str(BASE_DIR / "runtime" / "teambition_har" / "teambition_headers.json")))
 TASK_CREATE_URL = "https://www.teambition.com/api/v2/tasks"
@@ -242,69 +241,24 @@ def _request_hash(request: BugCreateRequest, fields: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _token_path(token: str) -> Path:
-    return CONFIRM_DIR / f"{token}.json"
-
-
 def _create_confirmation(request: BugCreateRequest, fields: dict[str, Any]) -> str:
-    token = f"confirm_{uuid4().hex}"
-    CONFIRM_DIR.mkdir(parents=True, exist_ok=True)
-    now = int(time.time())
-    payload = {
-        "token": token,
+    return create_confirmation(ACTION, {
         "action": ACTION,
         "request_hash": _request_hash(request, fields),
         "user_id": request.user_id,
         "conversation_id": request.conversation_id,
         "fields": _public_fields(fields),
-        "created_at": now,
-        "expires_at": now + CONFIRM_TTL_SECONDS,
-        "used": False,
-    }
-    _token_path(token).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    return token
+    })
 
 
 def _consume_confirmation(request: BugCreateRequest, fields: dict[str, Any]) -> BugCreateResponse | None:
-    if not request.confirm_token:
-        return BugCreateResponse(success=False, code="missing_confirm_token", message="缺少确认 token", fields=_public_fields(fields))
-    path = _token_path(request.confirm_token)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 无效", fields=_public_fields(fields))
-
-    if data.get("action") != ACTION or data.get("used"):
-        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 已使用或不匹配", fields=_public_fields(fields))
-    if int(data.get("expires_at", 0)) < int(time.time()):
-        path.unlink(missing_ok=True)
-        return BugCreateResponse(success=False, code="expired_confirm_token", message="确认 token 已过期", fields=_public_fields(fields))
-    if data.get("user_id") != request.user_id or data.get("conversation_id") != request.conversation_id:
-        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 与请求不匹配", fields=_public_fields(fields))
-    if data.get("request_hash") != _request_hash(request, fields):
-        return BugCreateResponse(success=False, code="invalid_confirm_token", message="确认 token 与当前字段不匹配", fields=_public_fields(fields))
-
-    data["used"] = True
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-    path.unlink(missing_ok=True)
-    return None
+    expected = {"user_id": request.user_id, "conversation_id": request.conversation_id, "request_hash": _request_hash(request, fields)}
+    message = consume_confirmation(request.confirm_token, ACTION, expected)
+    return BugCreateResponse(success=False, code="invalid_confirm_token", message=message, fields=_public_fields(fields)) if message else None
 
 
 def find_pending_bug_confirmation(user_id: str, conversation_id: str | None) -> dict[str, Any] | None:
-    now = int(time.time())
-    latest: dict[str, Any] | None = None
-    for path in CONFIRM_DIR.glob("confirm_*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if data.get("action") != ACTION or data.get("used") or int(data.get("expires_at", 0)) < now:
-            continue
-        if data.get("user_id") != user_id or data.get("conversation_id") != conversation_id:
-            continue
-        if latest is None or int(data.get("created_at", 0)) > int(latest.get("created_at", 0)):
-            latest = data
-    return latest
+    return find_pending(ACTION, user_id, conversation_id)
 
 
 def _response_json(response: httpx.Response) -> Any:
@@ -416,17 +370,20 @@ def _default_business_fields() -> dict[str, Any]:
         "resolver": members.get("default_resolver"),
         "defect_category": _field_object_default(fields, "defect_category"),
         "priority": (defaults.get("priority") or {}).get("value"),
-        "sprint": _field_choice_default(fields, "sprint"),
-        "severity": _named_default(defaults, "severity"),
-        "bug_or_legacy": _field_choice_default(fields, "bug_or_legacy") or _named_default(defaults, "bug_or_legacy"),
-        "environment": _named_default(defaults, "environment"),
-        "source": _named_default(defaults, "source"),
-        "service_org": _field_choice_default(fields, "service_org") or _named_default(defaults, "service_org"),
-        "is_rd_project": _named_default(defaults, "is_rd_project"),
-        "related_product": _field_choice_default(fields, "related_product") or _named_default(defaults, "related_product"),
-        "related_project": _field_choice_default(fields, "related_project"),
-        "related_database": _field_choice_default(fields, "related_database"),
     }
+    for name in [
+        "sprint",
+        "severity",
+        "bug_or_legacy",
+        "environment",
+        "source",
+        "service_org",
+        "is_rd_project",
+        "related_product",
+        "related_project",
+        "related_database",
+    ]:
+        result[name] = _field_choice_default(fields, name) or _named_default(defaults, name)
     return {key: value for key, value in result.items() if value not in (None, "")}
 
 
