@@ -11,20 +11,44 @@ Use the project CLI as the only execution path for Jenkins and Teambition ChatOp
 
 1. Ensure the project is installed locally:
 
+Windows:
+
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
 ```
 
+Mac / Linux:
+
+```bash
+./.venv/bin/python -m pip install -e .
+```
+
 2. Check local setup when starting a new machine or after config changes:
+
+Windows:
 
 ```powershell
 .\.venv\Scripts\ci-defect-assistant.exe doctor
 ```
 
+Mac / Linux:
+
+```bash
+./.venv/bin/ci-defect-assistant doctor
+```
+
 3. For every DingTalk/OpenClaw Jenkins or Teambition message, call:
+
+Windows:
 
 ```powershell
 .\.venv\Scripts\ci-defect-assistant.exe chat --user-id "<real_ding_user_id>" --conversation-id "<real_ding_conversation_id>" --text "<original_user_text>"
+```
+
+Mac / Linux:
+
+```bash
+./.venv/bin/ci-defect-assistant chat --user-id "<real_ding_user_id>" --conversation-id "<real_ding_conversation_id>" --text "<original_user_text>"
 ```
 
 4. Parse stdout as JSON and send exactly the `reply` value back to DingTalk. Do not prepend, append, translate, summarize, or reformat it.
@@ -35,8 +59,16 @@ If the CLI result contains `result.code = "needs_confirmation"`, send `reply` an
 
 When the same user replies only `确认`, call the CLI again with the same real `user_id` and `conversation_id`:
 
+Windows:
+
 ```powershell
 .\.venv\Scripts\ci-defect-assistant.exe chat --user-id "<same_user_id>" --conversation-id "<same_conversation_id>" --text "确认"
+```
+
+Mac / Linux:
+
+```bash
+./.venv/bin/ci-defect-assistant chat --user-id "<same_user_id>" --conversation-id "<same_conversation_id>" --text "确认"
 ```
 
 Do not construct confirmation JSON manually. The CLI owns token lookup, user binding, conversation binding, and request matching.
@@ -58,16 +90,32 @@ Do not answer from memory or previous tool output. Query lookup is part of the C
 
 ## Local Paths
 
-Default project path:
+The project path is the directory where this repository is cloned.
+
+Example Windows path:
 
 ```text
 C:\2_PROJECT\proj\openclaw-ci-defect-assistant
 ```
 
+Example Mac / Linux path:
+
+```text
+/opt/openclaw-ci-defect-assistant
+```
+
 When running from another directory, set:
+
+Windows:
 
 ```powershell
 $env:CI_DEFECT_ASSISTANT_HOME="C:\2_PROJECT\proj\openclaw-ci-defect-assistant"
+```
+
+Mac / Linux:
+
+```bash
+export CI_DEFECT_ASSISTANT_HOME="/opt/openclaw-ci-defect-assistant"
 ```
 
 Read [references/cli-contract.md](references/cli-contract.md) only when you need exact CLI contract details for packaging, plugin work, or OpenClaw prompt updates.
