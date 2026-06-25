@@ -345,7 +345,8 @@ members:
   default_executor: "6a14ffee2dfe137452f632a9"
   display_names:
     "6a14ffee2dfe137452f632a9": "高峰"
-  by_name: {}
+  by_name:
+    AITester: "6a14ffee2dfe137452f632a9"
 
 still_missing_for_real_create:
   - "business confirmation whether the default related_project is acceptable"

@@ -1,7 +1,7 @@
 {
   "id": "openclaw-ci-defect-assistant",
   "name": "OpenClaw CI Defect Assistant",
-  "description": "Route Jenkins and Teambition ChatOps requests through ci-defect-assistant.",
+  "description": "Mandatory executor for Jenkins, CI, Teambition, bug, defect, issue, 缺陷, 创建缺陷, 提 bug, 确认, 状态, and 链接 chat requests.",
   "version": "0.1.0",
   "configSchema": {
     "type": "object",

@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.config import teambition_bug_form_config
+
 
 CUSTOMFIELD_NAMES = [
     "defect_category",
@@ -23,6 +25,7 @@ CUSTOMFIELD_NAMES = [
 ]
 
 MEMBER_FIELDS = {"tester", "resolver"}
+EXECUTOR_FIELD = "executor"
 KNOWN_CHOICE_VALUES = {
     "defect_category": {
         "655c8ace7c4907e734c6a851": {
@@ -56,9 +59,9 @@ def build_v2_task_payload(fields: dict[str, Any], evidence: dict[str, Any]) -> d
     _set_if_present(payload, "_scenariofieldconfigId", fields, "sfc_id")
     _set_if_present(payload, "content", fields, "title")
     _set_if_present(payload, "note", fields, "description")
-    _set_if_present(payload, "_executorId", fields, "executor")
-    _set_if_present(payload, "startDate", fields, "start_time")
-    _set_if_present(payload, "dueDate", fields, "due_time")
+    _set_executor_if_present(payload, fields, evidence)
+    _set_date_if_present(payload, "startDate", fields, "start_time")
+    _set_date_if_present(payload, "dueDate", fields, "due_time")
     _set_sprint_id(payload, fields, evidence)
     if "priority" in fields:
         payload["priority"] = _priority_value(fields["priority"])
@@ -98,6 +101,19 @@ def _set_if_present(payload: dict[str, Any], target: str, fields: dict[str, Any]
     value = fields.get(source)
     if value not in (None, ""):
         payload[target] = value
+
+
+def _set_date_if_present(payload: dict[str, Any], target: str, fields: dict[str, Any], source: str) -> None:
+    value = fields.get(source)
+    if value not in (None, ""):
+        payload[target] = _date_value(value)
+
+
+def _set_executor_if_present(payload: dict[str, Any], fields: dict[str, Any], evidence: dict[str, Any]) -> None:
+    value = fields.get(EXECUTOR_FIELD)
+    if value in (None, ""):
+        return
+    payload["_executorId"] = _member_id(value, evidence) or str(value)
 
 
 def _customfield_templates(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -142,6 +158,13 @@ def _priority_value(value: Any) -> int:
     if priority in {0, 1, 2, 3, 4, 5}:
         return priority
     raise ValueError("priority must be one of 0, 1, 2, 3, 4, 5")
+
+
+def _date_value(value: Any) -> str:
+    text = str(value).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", text):
+        return text.replace(" ", "T") + ":00+08:00"
+    return text
 
 
 def _sprint_id(value: Any, evidence: dict[str, Any]) -> str | None:
@@ -205,6 +228,9 @@ def _member_value(value: Any, evidence: dict[str, Any], template: dict[str, Any]
     if isinstance(value, dict):
         return {"_id": value.get("_id") or value.get("id"), "title": value.get("title") or value.get("name")}
     text = str(value).strip()
+    mapped = _configured_member_id(text)
+    if mapped:
+        return _member_value(mapped, evidence, template)
     template_match = _template_choice(text, template)
     if template_match:
         return template_match
@@ -212,6 +238,26 @@ def _member_value(value: Any, evidence: dict[str, Any], template: dict[str, Any]
         if text in {str(member.get("id") or ""), str(member.get("user_id") or ""), str(member.get("name") or "")}:
             return {"_id": member.get("id"), "title": member.get("name")}
     return {"title": text}
+
+
+def _member_id(value: Any, evidence: dict[str, Any]) -> str | None:
+    if isinstance(value, dict):
+        item_id = value.get("_id") or value.get("id")
+        return str(item_id) if item_id else None
+    text = str(value).strip()
+    mapped = _configured_member_id(text)
+    if mapped:
+        return _member_id(mapped, evidence)
+    for member in evidence.get("members") or []:
+        if text in {str(member.get("id") or ""), str(member.get("user_id") or ""), str(member.get("name") or "")}:
+            return str(member.get("id") or "")
+    return None
+
+
+def _configured_member_id(text: str) -> str | None:
+    by_name = (teambition_bug_form_config().get("members") or {}).get("by_name") or {}
+    value = by_name.get(text)
+    return str(value).strip() or None if value else None
 
 
 def _choice_value(value: Any, evidence: dict[str, Any], name: str, template: dict[str, Any], keep_id: bool) -> dict[str, Any]:

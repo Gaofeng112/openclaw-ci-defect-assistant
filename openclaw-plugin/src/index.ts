@@ -16,12 +16,12 @@ const ConfigSchema = Type.Object({
 export default defineToolPlugin({
   id: "openclaw-ci-defect-assistant",
   name: "OpenClaw CI Defect Assistant",
-  description: "Route Jenkins and Teambition ChatOps requests through ci-defect-assistant.",
+  description: "Mandatory executor for Jenkins, CI, Teambition, bug, defect, issue, 缺陷, 创建缺陷, 提 bug, 确认, 状态, and 链接 chat requests.",
   configSchema: ConfigSchema,
   tools: (tool) => [
     tool({
       name: "ci_defect_assistant_chat",
-      description: "Handle one DingTalk/OpenClaw Jenkins or Teambition message through the local ci-defect-assistant CLI.",
+      description: "MUST be called for any DingTalk/OpenClaw Jenkins, CI, pipeline, build, test, Teambition, bug, defect, issue, 缺陷, 创建缺陷, 提 bug, 确认, 状态, or 链接 request. This is the executor. Do not use skill_workshop, shell commands, direct Jenkins/Teambition calls, or write your own reply. Return its reply field to the user unchanged.",
       parameters: Type.Object({
         user_id: Type.String({ description: "Real DingTalk sender id." }),
         conversation_id: Type.String({ description: "Real DingTalk conversation id. In group chat use Conversation info.chat_id." }),
@@ -48,7 +48,8 @@ async function runCli(command: string, projectRoot: string, args: string[]) {
     return { success: false, code: "cli_failed", message: stderr || stdout || `CLI exited with ${code}` };
   }
   try {
-    return JSON.parse(stdout);
+    const result = JSON.parse(stdout);
+    return typeof result?.reply === "string" ? result.reply : result;
   } catch {
     return { success: false, code: "invalid_cli_json", message: stdout || "CLI returned empty output" };
   }
@@ -58,7 +59,7 @@ function run(command: string, args: string[], cwd: string): Promise<{ stdout: st
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
-      shell: process.platform === "win32",
+      windowsHide: true,
       env: { ...process.env, CI_DEFECT_ASSISTANT_HOME: cwd },
     });
     let stdout = "";
