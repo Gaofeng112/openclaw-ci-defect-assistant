@@ -20,6 +20,10 @@ def create_confirmation(action: str, data: dict[str, Any]) -> str:
     return token
 
 
+def token_suffix(token: str) -> str:
+    return token.rsplit("_", 1)[-1][-6:]
+
+
 def consume_confirmation(token: str | None, action: str, expected: dict[str, Any]) -> str | None:
     data = _read(token)
     if not data:

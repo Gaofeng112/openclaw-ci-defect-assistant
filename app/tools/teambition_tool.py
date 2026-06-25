@@ -25,13 +25,14 @@ TASK_CREATE_URL = "https://www.teambition.com/api/v2/tasks"
 REQUIRED_FIELDS = [
     "title",
     "description",
+    "sprint",
 ]
 DEFAULTS = {
     "priority": 0,
-    "severity": "一般",
     "bug_or_legacy": "BUG",
     "service_org": "集团公司",
     "related_product": "药智数据企业版",
+    "related_project": "无",
 }
 SYSTEM_FIELDS = {"project_id", "tasklist_id", "stage_id", "taskflowstatus_id", "sfc_id"}
 
@@ -96,10 +97,19 @@ def _merged_fields(request: BugCreateRequest) -> dict[str, Any]:
         "sfc_id": settings["sfc_id"],
     }
     fields |= _default_business_fields()
-    fields |= load_fields(ACTION, request.conversation_id)
-    fields |= extract_bug_fields(request.text, request.fields)
+    text_fields = extract_bug_fields(request.text, request.fields)
+    saved_fields = {} if _is_new_bug_request(text_fields) else load_fields(ACTION, request.conversation_id)
+    fields |= saved_fields
+    fields |= text_fields
+    if text_fields.get("environment") and saved_fields.get("environment") and text_fields["environment"] != saved_fields["environment"]:
+        fields.pop("sprint", None)
+    fields = _apply_environment_rules(fields)
     fields = _apply_runtime_defaults(fields)
     return {key: value for key, value in fields.items() if value not in (None, "")}
+
+
+def _is_new_bug_request(fields: dict[str, Any]) -> bool:
+    return bool(fields.get("title"))
 
 
 def _mock_enabled() -> bool:
@@ -316,13 +326,24 @@ def _display_fields(fields: dict[str, Any], payload: dict[str, Any]) -> dict[str
         "project": project.get("project_name") or payload.get("_projectId"),
         "type": "缺陷",
         "title": fields.get("title"),
+        "description": fields.get("description"),
         "executor": _display_field_value("executor", fields.get("executor"), form),
+        "tester": _display_field_value("tester", fields.get("tester"), form),
+        "resolver": _display_field_value("resolver", fields.get("resolver"), form),
         "defect_category": _display_field_value("defect_category", fields.get("defect_category"), form),
         "severity": _display_field_value("severity", fields.get("severity"), form),
         "priority": str(payload.get("priority")) if payload.get("priority") is not None else None,
         "sprint": _display_field_value("sprint", fields.get("sprint"), form),
         "start_time": _display_time(fields.get("start_time")),
         "due_time": _display_time(fields.get("due_time")),
+        "bug_or_legacy": _display_field_value("bug_or_legacy", fields.get("bug_or_legacy"), form),
+        "environment": _display_field_value("environment", fields.get("environment"), form),
+        "source": _display_field_value("source", fields.get("source"), form),
+        "is_rd_project": _display_field_value("is_rd_project", fields.get("is_rd_project"), form),
+        "related_product": _display_field_value("related_product", fields.get("related_product"), form),
+        "related_project": _display_field_value("related_project", fields.get("related_project"), form),
+        "related_database": _display_field_value("related_database", fields.get("related_database"), form),
+        "service_org": _display_field_value("service_org", fields.get("service_org"), form),
         "customfields_count": len(payload.get("customfields") or []),
     }
 
@@ -416,13 +437,24 @@ def _field_object_default(fields: dict[str, Any], name: str) -> dict[str, Any] |
 
 def _apply_runtime_defaults(fields: dict[str, Any]) -> dict[str, Any]:
     result = dict(fields)
-    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    today = datetime.now(timezone(timedelta(hours=8))).date()
     if _is_missing(result.get("start_time")):
-        result["start_time"] = _iso_utc(now)
+        result["start_time"] = f"{today} 08:30"
     if _is_missing(result.get("due_time")):
-        result["due_time"] = _iso_utc(now + timedelta(days=7))
+        result["due_time"] = f"{today} 22:00"
     return result
 
 
-def _iso_utc(value: datetime) -> str:
-    return value.isoformat().replace("+00:00", "Z")
+def _apply_environment_rules(fields: dict[str, Any]) -> dict[str, Any]:
+    result = dict(fields)
+    if result.get("environment") == "正服":
+        result["defect_category"] = {"title": "企业版线上缺陷 / 线上缺陷", "_id": "655c8ace7c4907e734c6a851"}
+        result["source"] = "用户反馈"
+        result["is_rd_project"] = "否"
+        result["sprint"] = "线上缺陷迭代"
+    elif result.get("environment") in {"测服", "预发布"}:
+        result["defect_category"] = "企业版迭代缺陷"
+        result["source"] = "研发技术-测试"
+        if result.get("sprint") == "6577dbefe126aba741240518":
+            result.pop("sprint")
+    return result

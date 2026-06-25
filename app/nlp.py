@@ -57,6 +57,8 @@ def _normalize(fields: dict[str, Any]) -> dict[str, Any]:
         fields["environment"] = fields.pop("env")
     if "description" not in fields and any(fields.get(name) for name in ["steps", "actual", "expected"]):
         fields["description"] = _description_from_parts(fields)
+    if "description" not in fields and fields.get("title"):
+        fields["description"] = fields["title"]
     return fields
 
 
@@ -74,9 +76,18 @@ def _extract_freeform(text: str) -> dict[str, str]:
         if word in lower:
             result.setdefault("severity", severity)
             break
-    environment = _match_first(text, [r"(?:环境|在)\s*([a-zA-Z0-9_-]+)\s*(?:环境)?", r"\b(env|test|pre|prod|uat)\b"])
+    environment = _match_first(text, [r"(正服|线上|生产|测服|测试服|预发布)", r"(?:环境|env)\s*[:：=]?\s*([a-zA-Z0-9_-]+)", r"\b(env|test|pre|prod|uat)\b"])
     if environment:
         result.setdefault("environment", environment)
+    if "中国上市" in text:
+        issue_text = _strip_value(re.split(r"[，,]\s*给", text, 1)[0])
+        result.setdefault("related_database", "中国上市药品")
+        result.setdefault("title", "【中国上市】" + _strip_value(re.sub(r".*?中国上市", "", text).split("，给", 1)[0]))
+        result.setdefault("description", issue_text)
+    owner = re.search(r"给\s*([A-Za-z0-9_\-\u4e00-\u9fff]+)\s*创建", text)
+    if owner:
+        result.setdefault("executor", owner.group(1))
+        result.setdefault("resolver", owner.group(1))
     if "title" not in result and not _extract_labeled(text):
         result["title"] = _strip_value(re.sub(r"^(帮我|请|创建|新建|提一个|提个|bug|缺陷|\s)+", "", text, flags=re.I))
     return result

@@ -2,9 +2,11 @@ import json
 import re
 import sys
 from argparse import Namespace
+from pathlib import Path
 from typing import Any
 
 from app.audit import write_audit
+from app.confirmation_store import token_suffix
 from app.config import jobs_config
 from app.executor import execute
 from app.schemas import CiCommand, CiResult
@@ -13,10 +15,18 @@ from app.tools.teambition_tool import find_pending_bug_confirmation
 
 
 def handle_chat(args: Namespace) -> dict[str, Any]:
-    command = _confirmation_command(args)
+    try:
+        command = _confirmation_command(args)
+    except ValueError:
+        result = CiResult(success=False, code="confirm_token_required", message="为了避免误创建缺陷，请按预览里的确认码回复，例如：确认 123456。")
+        return {"reply": _reply(result), "result": result.model_dump(exclude_none=True)}
     action = _action(args.text) if command is None else command.action
+    if command is None and action == "unknown_intent" and _has_fields(args):
+        action = "bug.create"
     if command is None and action == "unknown_intent":
         result = CiResult(success=False, code="unknown_intent", message="没判断出是执行 Jenkins 还是创建 bug，请补充说明。")
+    elif command is None and action == "bug.create" and (field_error := _field_error(args)):
+        result = field_error
     else:
         command = command or _command(args, action)
         result = execute(command)
@@ -30,10 +40,13 @@ def print_json(payload: dict[str, Any]) -> None:
 
 
 def _confirmation_command(args: Namespace) -> CiCommand | None:
-    if not _is_confirmation(args.text) or args.confirm_token:
+    if _has_fields(args) or not _is_confirmation(args.text) or args.confirm_token:
         return None
     bug_data = find_pending_bug_confirmation(args.user_id, args.conversation_id)
     if bug_data:
+        suffix = _confirmation_suffix(args.text)
+        if not suffix or not str(bug_data["token"]).endswith(suffix):
+            raise ValueError("bug confirmation token required")
         return _confirmed_command(args, "bug.create", dict(bug_data.get("fields") or {}), bug_data["token"])
     data = find_pending_confirmation(args.user_id, args.conversation_id)
     if not data:
@@ -66,16 +79,24 @@ def _confirmed_command(
 
 
 def _is_confirmation(text: str) -> bool:
-    return re.sub(r"\s+", "", text.strip().lower()) in {"确认", "确定", "yes", "y", "ok", "确认创建", "继续创建", "确认提交"}
+    return re.sub(r"\s+", "", text.strip().lower()) in {"确认", "确定", "yes", "y", "ok", "确认创建", "继续创建", "确认提交"} or _confirmation_suffix(text) is not None
+
+
+def _confirmation_suffix(text: str) -> str | None:
+    match = re.fullmatch(r"\s*(?:确认|确定|确认创建|继续创建|确认提交)\s+([0-9a-fA-F]{6})\s*", text)
+    return match.group(1).lower() if match else None
 
 
 def _command(args: Namespace, action: str) -> CiCommand:
+    params: dict[str, Any] = _params(args.text, action)
+    if action == "bug.create":
+        params |= _fields(args)
     payload = {
         "conversation_id": args.conversation_id,
         "user_id": args.user_id,
         "action": action,
         "text": args.text,
-        "params": _params(args.text, action),
+        "params": params,
         "source": _source(args),
         "confirmed": args.confirmed,
         "confirm_token": args.confirm_token,
@@ -124,6 +145,31 @@ def _params(text: str, action: str) -> dict[str, str]:
         "env": _match(text, [r"(?:环境|env)\s*[:：=]?\s*([a-zA-Z0-9_-]+)", r"\b(test|pre|stage|uat|prod)\b"]),
         "branch": _match(text, [r"(?:分支|branch)\s*[:：=]?\s*([a-zA-Z0-9._/-]+)"]),
     }.items() if value}
+
+
+def _fields(args: Namespace) -> dict[str, Any]:
+    raw = Path(args.fields_file).read_text(encoding="utf-8-sig") if args.fields_file else args.fields_json
+    if not raw:
+        return {}
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("fields-json must be an object")
+    return {str(key): value for key, value in data.items() if value not in (None, "")}
+
+
+def _field_error(args: Namespace) -> CiResult | None:
+    try:
+        _fields(args)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        return CiResult(success=False, code="invalid_fields", message=f"字段 JSON 格式不正确: {exc}")
+    return None
+
+
+def _has_fields(args: Namespace) -> bool:
+    try:
+        return bool(_fields(args))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return True
 
 
 def _job(text: str) -> str:
@@ -186,16 +232,31 @@ def _bug_preview(result: CiResult) -> str:
         ("项目", display.get("project")),
         ("类型", display.get("type")),
         ("标题", display.get("title") or preview.get("title")),
+        ("描述", display.get("description") or preview.get("description")),
         ("负责人", display.get("executor")),
+        ("测试人员", display.get("tester")),
+        ("BUG/遗留", display.get("bug_or_legacy")),
+        ("缺陷解决人", display.get("resolver")),
         ("缺陷分类", display.get("defect_category")),
+        ("缺陷环境", display.get("environment")),
+        ("缺陷来源", display.get("source")),
+        ("是否为研发立项", display.get("is_rd_project")),
+        ("相关产品", display.get("related_product")),
+        ("相关项目", display.get("related_project")),
+        ("相关数据库", display.get("related_database")),
+        ("服务组织", display.get("service_org")),
         ("严重程度", display.get("severity")),
         ("优先级", display.get("priority")),
+        ("开始时间", display.get("start_time")),
         ("迭代", display.get("sprint")),
         ("截止时间", display.get("due_time")),
     ]
     lines = ["准备创建 Teambition 缺陷，请确认："]
     lines += [f"{label}：{value}" for label, value in items if value is not None]
-    lines.append("回复“确认”创建；要修改就直接补充字段。")
+    if result.confirm_token:
+        lines.append(f"回复“确认 {token_suffix(result.confirm_token)}”创建；要修改就直接补充字段。")
+    else:
+        lines.append("回复确认码创建；要修改就直接补充字段。")
     return "\n".join(lines)
 
 

@@ -87,8 +87,8 @@ defaults:
     name: "无关紧要"
     value: 0
   severity:
-    name: "轻微"
-    id: "6555677efc3a4d9339e25391"
+    name: "一般"
+    id: "6555677efc3a4d9339e25390"
   bug_or_legacy:
     name: "BUG"
     id: "65573fb93faa10c4e782def7"
@@ -99,8 +99,8 @@ defaults:
     name: "测服"
     id: "6554838d2467cc38b216288e"
   is_rd_project:
-    name: "是"
-    id: "655dbba6f42754564b4ab5ff"
+    name: "否"
+    id: "655dbba6f42754564b4ab600"
 
 required_business_fields:
   - title
@@ -284,8 +284,9 @@ fields:
     customfield_id: "6555e36e4588a3b146fd4b73"
     required: true
     type: "single_select"
-    default: "中国上市器械筛选系统（已结项）"
+    default: "无"
     options:
+      无: "65572faedc4ba044bf4c0eff"
       中国上市器械筛选系统（已结项）: "65dd88076d4c9d4204a5cd92"
     note: "First-stage default only. Full option list still needs business review if users need free selection."
 
@@ -294,9 +295,12 @@ fields:
     customfield_id: "653a41ce70aef2d3091d4218"
     required: true
     type: "single_or_multi_select"
-    default: "DRG试点医院数据"
+    default: "无"
     options:
+      无: "655b00457b8b7e59ce39edef"
       DRG试点医院数据: "655b00457b8b7e59ce39edf0"
+      中国上市药品: "655b00457b8b7e59ce39edf5"
+      中国上市器械筛选系统: "655b03c74c0b3829d9e32b8c"
     note: "First-stage default only. Full option list still needs business review if users need free selection."
 
 optional_fields:

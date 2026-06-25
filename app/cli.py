@@ -36,6 +36,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     chat.add_argument("--request-id")
     chat.add_argument("--confirmed", action="store_true")
     chat.add_argument("--confirm-token")
+    chat.add_argument("--fields-json")
+    chat.add_argument("--fields-file")
     chat.add_argument("--no-wait-result", action="store_true")
 
     subparsers.add_parser("init", help="Create local runtime folders and .env from template")
