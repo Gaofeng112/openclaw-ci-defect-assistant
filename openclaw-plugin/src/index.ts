@@ -101,7 +101,11 @@ async function runCli(command: string, projectRoot: string, args: string[]) {
 }
 
 function visibleReply(reply: string) {
-  return `必须原样发送下面整段内容，不要摘要，不要改写，不要只发送确认码：\n${reply}`;
+  return `必须原样发送下面整段内容，不要摘要，不要改写，不要只发送确认码：\n${markdownLineBreaks(reply)}`;
+}
+
+function markdownLineBreaks(text: string) {
+  return text.replace(/\n/g, "  \n");
 }
 
 function run(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string; code: number | null }> {
