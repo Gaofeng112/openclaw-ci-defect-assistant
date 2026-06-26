@@ -1,50 +1,69 @@
 # CI Defect Assistant
 
-CI Defect Assistant 是一个给 OpenClaw / Hermes / 钉钉使用的本地执行器。
-
-它让用户可以在钉钉里用自然语言触发 Jenkins、创建 Teambition 缺陷、查询执行结果。OpenClaw 或 Hermes 负责理解用户意图，本项目负责真正执行：权限检查、二次确认、Jenkins 调用、Teambition 调用、审计日志和结果返回。
+CI Defect Assistant 是一个本地执行器，用来把钉钉里的白话请求转成可确认、可审计的 Jenkins / Teambition 操作。
 
 ```text
-钉钉 -> OpenClaw / Hermes -> ci-defect-assistant -> Jenkins / Teambition -> 钉钉回复
+钉钉 -> OpenClaw / Hermes -> CI Defect Assistant -> Jenkins / Teambition -> 钉钉回复
 ```
 
-## 能做什么
+它不替代 OpenClaw 或 Hermes。OpenClaw / Hermes 负责接收消息，本项目负责真正执行：权限检查、字段生成、二次确认、接口调用、审计记录和结果返回。
+
+## 功能
 
 - 触发 Jenkins 任务。
-- 查询最近一次 Jenkins / Teambition 执行结果。
-- 根据一句白话生成完整 Teambition 缺陷字段。
-- 创建缺陷前返回完整预览，用户确认后才真正创建。
+- 查询最近 Jenkins / Teambition 执行结果。
+- 根据一句白话生成 Teambition 缺陷完整字段。
+- 创建缺陷前先返回预览和确认码。
 - 按钉钉用户 ID 做权限控制。
 
-## 不能直接做到什么
+## 适用方式
 
-安装插件或 MCP server 后，OpenClaw / Hermes 只是多了一个可调用工具。要让它主动调用这个工具，还需要把本项目提供的路由提示词配置到 Agent 提示词或工作区规则里。
+### OpenClaw
 
-如果不配置这一步，Agent 可能只会自己回答，不会真正执行 Jenkins 或创建 Teambition 缺陷。
+OpenClaw 通过插件调用本项目。
 
-路由提示词文件：
+```text
+钉钉 -> OpenClaw -> openclaw-plugin -> ci-defect-assistant CLI
+```
+
+这种方式需要把路由提示词配进 OpenClaw：
 
 ```text
 docs/openclaw-tool-router-prompt.md
-docs/hermes-tool-router-prompt.md
 ```
+
+### Hermes MCP
+
+Hermes 可以通过 MCP 调用本项目。
+
+```text
+Hermes -> hermes-mcp -> ci-defect-assistant CLI
+```
+
+只注册 MCP 不等于 Hermes 一定会调用工具。模型可能自己回答。真实钉钉场景建议使用下面的 Hermes Gateway 直通方式。
+
+### Hermes Gateway 直通
+
+当前本机验证通过的是这个方式：
+
+```text
+钉钉 -> Hermes DingTalk Gateway -> ci-defect-assistant CLI
+```
+
+遇到 `tb缺陷`、`缺陷`、`提bug`、`Teambition`、`确认 xxxxxx` 这类消息时，DingTalk 入口直接调用本项目 CLI，不再让模型判断是否调用 MCP。
+
+这个直通逻辑目前是本机 Hermes 适配器改动，不在本仓库里。别人复用时，需要在自己的 Hermes 环境里做同样接入，或继续使用 OpenClaw 插件方式。
 
 ## 环境要求
 
 - Python 3.11+
 - Node.js / npm
-- 已安装并配置 OpenClaw 或 Hermes
-- Windows PowerShell，或 Mac / Linux bash
-- Jenkins 访问凭证
-- Teambition 访问凭证
+- Windows PowerShell，或 macOS / Linux shell
+- Jenkins 凭证
+- Teambition 凭证
+- OpenClaw 或 Hermes 二选一
 
-## 快速开始
-
-### 1. 获取项目
-
-克隆仓库，或解压项目 zip。
-
-### 2. 安装
+## 安装
 
 Windows：
 
@@ -52,36 +71,32 @@ Windows：
 .\scripts\install.ps1
 ```
 
-Mac / Linux：
+macOS / Linux：
 
 ```bash
 chmod +x scripts/install.sh
 ./scripts/install.sh
 ```
 
-安装脚本会自动创建 `.venv/`、`runtime/` 和 `.env`，并安装 OpenClaw 插件。
-
-插件会调用本地 CLI，所以 OpenClaw 安装插件时会要求使用 `--dangerously-force-unsafe-install` 明确确认。
-
-如果只使用 Hermes，可以跳过 OpenClaw 安装：
+只使用 Hermes，不安装 OpenClaw 插件：
 
 ```powershell
 .\scripts\install.ps1 -SkipOpenClawInstall
 ```
 
-### 3. 填写 `.env`
+安装后会生成：
 
-Windows：
-
-```powershell
-notepad .env
+```text
+.venv/
+runtime/
+.env
 ```
 
-Mac / Linux：
+这些都是本机文件，不要提交。
 
-```bash
-nano .env
-```
+## 配置
+
+### 1. 填写 `.env`
 
 至少填写：
 
@@ -95,16 +110,38 @@ TEAMBITION_APP_SECRET=
 TEAMBITION_OPERATOR_ID=
 ```
 
-完整字段见 `.env.example`。
-
-### 4. 检查配置文件
-
-常改文件：
+完整模板见：
 
 ```text
-configs/users.yaml      谁可以用，钉钉 sender id 写在这里
-configs/jobs.yaml       Jenkins job、环境、角色
+.env.example
 ```
+
+### 2. 配置用户权限
+
+```text
+configs/users.yaml
+```
+
+钉钉真实用户 ID 必须写在这里，否则不能创建缺陷或触发 Jenkins。
+
+示例：
+
+```yaml
+"17797610609074237":
+  name: "DingTalk QA User"
+  roles:
+    - qa
+```
+
+### 3. 配置 Jenkins
+
+```text
+configs/jobs.yaml
+```
+
+这里配置 job、参数、环境和可用角色。
+
+### 4. 配置 Teambition
 
 同一个 Teambition 项目和同一套缺陷表单通常不用改：
 
@@ -113,47 +150,50 @@ configs/teambition.yaml
 configs/teambition_bug_form.v1.yaml
 ```
 
-如果换了 Teambition 项目或缺陷表单，需要重新确认项目 ID、任务列表 ID、字段 ID、选项 ID、人员 ID。
+换项目或换表单时，需要重新确认项目 ID、任务列表 ID、字段 ID、选项 ID、成员 ID。
 
-### 5. 生成 Teambition 登录态
-
-创建 Teambition 缺陷前，需要在本机生成：
+人员名映射在：
 
 ```text
-runtime/teambition_har/teambition_headers.json
+configs/teambition_bug_form.v1.yaml
 ```
 
-Windows：
+当前只配置了 `AITester`。如果希望“给张三创建”真的落到张三，需要补张三的 Teambition 成员 ID。
+
+### 5. 生成 Teambition 登录态
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\save_teambition_cookie.py
 ```
 
-Mac / Linux：
+生成文件：
 
-```bash
-./.venv/bin/python scripts/save_teambition_cookie.py
+```text
+runtime/teambition_har/teambition_headers.json
 ```
 
-按脚本提示在浏览器登录 Teambition。生成的登录态只放本机，不要提交，也不要发给别人。
+这个文件包含登录态，只能放本机。
 
-### 6. 配置 OpenClaw 路由规则
+## OpenClaw 使用
 
-把下面文件的内容加入 OpenClaw 的 Agent 提示词或工作区规则：
+安装后把下面文件内容加入 OpenClaw Agent 提示词或工作区规则：
 
 ```text
 docs/openclaw-tool-router-prompt.md
 ```
 
-核心要求是：遇到 Jenkins、CI、Teambition、bug、缺陷、确认、结果查询等请求时，OpenClaw 必须调用工具：
+检查：
 
-```text
-ci_defect_assistant_chat
+```powershell
+openclaw gateway restart
+openclaw plugins inspect openclaw-ci-defect-assistant
+openclaw plugins doctor
+openclaw status --deep
 ```
 
-### 7. 或者配置 Hermes MCP
+## Hermes MCP 使用
 
-安装 Hermes MCP server：
+安装 MCP：
 
 ```powershell
 cd hermes-mcp
@@ -169,60 +209,13 @@ $root = (Resolve-Path .).Path
 hermes mcp add ci-defect-assistant --command node --args "$root\hermes-mcp\dist\index.js"
 ```
 
-把下面文件的内容加入 Hermes 的 Agent 提示词或工作区规则：
-
-```text
-docs/hermes-tool-router-prompt.md
-```
-
-检查 Hermes 是否能看到 MCP server：
+检查：
 
 ```powershell
 hermes mcp test ci-defect-assistant
 ```
 
-### 8. 重启并检查 OpenClaw
-
-```powershell
-openclaw gateway restart
-openclaw plugins inspect openclaw-ci-defect-assistant
-openclaw plugins doctor
-openclaw status --deep
-```
-
-## 使用示例
-
-### 触发 Jenkins
-
-钉钉里发送：
-
-```text
-执行 ci_test 环境 test 分支 develop
-```
-
-系统会返回预览和确认码。用户确认后才会执行：
-
-```text
-确认 7d1f9a
-```
-
-### 创建 Teambition 缺陷
-
-钉钉里发送：
-
-```text
-企业版正服中国上市检索生僻字会报错，给AITester创建一个tb缺陷
-```
-
-系统会先返回完整字段预览，例如标题、描述、缺陷环境、负责人、严重程度、迭代等。用户确认后才会真正创建：
-
-```text
-确认 7d1f9a
-```
-
-## OpenClaw 工具说明
-
-插件暴露的工具名：
+MCP 工具名：
 
 ```text
 ci_defect_assistant_chat
@@ -231,82 +224,134 @@ ci_defect_assistant_chat
 参数：
 
 ```text
-user_id: "{{ding_user_id}}"
-conversation_id: "{{ding_conversation_id}}"
-text: "{{original_user_text}}"
-fields_json: 可选，OpenClaw 从用户原文里理解出的结构化字段 JSON 字符串
+user_id
+conversation_id
+text
+fields_json 可选
 ```
 
-规则：
+## Hermes DingTalk 使用
 
-- `user_id` 使用真实钉钉发送人 ID。
-- `conversation_id` 使用真实会话 ID。群聊必须用 `Conversation info.chat_id`。
-- `text` 传当前用户原文。
-- 创建 Teambition 缺陷时，OpenClaw 尽量用语义理解生成 `fields_json`，不要只按关键词拆文本。
-- 工具返回后，只把 JSON 里的 `reply` 字段发回钉钉。
-- 不要直接调用 Jenkins 或 Teambition。
+Hermes Gateway 使用钉钉 Stream 模式。钉钉后台创建企业内部机器人后，把凭证写入 Hermes 的 `.env`。
 
-## Hermes MCP 说明
+查看 Hermes `.env` 路径：
 
-Hermes 通过 MCP server 调用同一个工具：
-
-```text
-ci_defect_assistant_chat
+```powershell
+hermes config env-path
 ```
 
-MCP server 只做一件事：把 Hermes 的工具调用转成现有 CLI 命令。
+需要填写：
 
 ```text
-Hermes -> hermes-mcp -> ci-defect-assistant chat -> Jenkins / Teambition
+DINGTALK_CLIENT_ID=
+DINGTALK_CLIENT_SECRET=
+DINGTALK_ROBOT_CODE=
+GATEWAY_ALLOW_ALL_USERS=true
+```
+
+启动：
+
+```powershell
+$env:PYTHONUTF8='1'
+$env:PYTHONIOENCODING='utf-8'
+hermes gateway run --replace
+```
+
+后台运行时不要重复执行 `hermes gateway run`。查看状态：
+
+```powershell
+hermes gateway status
+```
+
+停止：
+
+```powershell
+hermes gateway stop
 ```
 
 ## 本地验证
 
-只检查 CLI 和插件，不安装到 OpenClaw：
-
-Windows：
-
-```powershell
-.\scripts\install.ps1 -SkipOpenClawInstall
-```
-
-Mac / Linux：
-
-```bash
-./scripts/install.sh --skip-openclaw-install
-```
-
-Jenkins mock：
-
-Windows：
+### Jenkins mock
 
 ```powershell
 $env:JENKINS_MOCK='1'
 .\.venv\Scripts\ci-defect-assistant.exe chat --user-id u001 --conversation-id demo --text "执行 ci_test 环境 test 分支 develop"
-.\.venv\Scripts\ci-defect-assistant.exe chat --user-id u001 --conversation-id demo --text "确认 <上一步返回的确认码>"
 ```
 
-Mac / Linux：
-
-```bash
-export JENKINS_MOCK=1
-./.venv/bin/ci-defect-assistant chat --user-id u001 --conversation-id demo --text "执行 ci_test 环境 test 分支 develop"
-./.venv/bin/ci-defect-assistant chat --user-id u001 --conversation-id demo --text "确认 <上一步返回的确认码>"
-unset JENKINS_MOCK
-```
-
-Teambition 预览：
-
-Windows：
+### Teambition 缺陷预览
 
 ```powershell
-.\.venv\Scripts\ci-defect-assistant.exe chat --user-id u001 --conversation-id bug-demo --text "企业版正服中国上市检索生僻字会报错，给AITester创建一个tb缺陷"
+.\.venv\Scripts\ci-defect-assistant.exe chat --user-id 17797610609074237 --conversation-id demo --text "企业版正服中国上市检索生僻字会报错，给AITester创建一个tb缺陷"
 ```
 
-Mac / Linux：
+期望返回：
 
-```bash
-./.venv/bin/ci-defect-assistant chat --user-id u001 --conversation-id bug-demo --text "企业版正服中国上市检索生僻字会报错，给AITester创建一个tb缺陷"
+```text
+准备创建 Teambition 缺陷，请确认：
+项目：药智数据企业版
+类型：缺陷
+标题：【中国上市】检索生僻字会报错
+...
+回复“确认 xxxxxx”创建
+```
+
+### Hermes MCP
+
+```powershell
+hermes mcp test ci-defect-assistant
+```
+
+应看到：
+
+```text
+Connected
+Tools discovered: 1
+ci_defect_assistant_chat
+```
+
+## 使用示例
+
+### 创建缺陷
+
+钉钉发送：
+
+```text
+企业版正服中国上市检索生僻字会报错，给AITester创建一个tb缺陷
+```
+
+系统返回完整预览。确认后创建：
+
+```text
+确认 7d1f9a
+```
+
+### 触发 Jenkins
+
+钉钉发送：
+
+```text
+执行 ci_test 环境 test 分支 develop
+```
+
+系统返回预览。确认后执行：
+
+```text
+确认 7d1f9a
+```
+
+## 不要提交的文件
+
+```text
+.env
+.venv/
+runtime/
+HAR/
+hermes-mcp/node_modules/
+hermes-mcp/dist/
+openclaw-plugin/node_modules/
+openclaw-plugin/dist/
+*.har
+*.log
 ```
 
 ## 交付给别人
@@ -327,57 +372,40 @@ README.md
 requirements.txt
 ```
 
-不要交付：
+别人需要自己准备：
 
 ```text
 .env
-.venv/
-runtime/
-HAR/
-hermes-mcp/node_modules/
-hermes-mcp/dist/
-openclaw-plugin/node_modules/
-openclaw-plugin/dist/
-*.har
-*.log
-```
-
-同一个 Teambition 项目和同一套缺陷表单，可以复用 `configs/teambition.yaml` 和 `configs/teambition_bug_form.v1.yaml`。换项目或换表单时，需要重新抓取 ID。
-
-## 目录说明
-
-```text
-app/                         Python CLI 和核心执行逻辑
-configs/                     Jenkins、用户权限、Teambition ID 配置
-docs/openclaw-tool-router-prompt.md  OpenClaw 路由提示词
-docs/hermes-tool-router-prompt.md    Hermes 路由提示词
-hermes-mcp/                  Hermes MCP server
-openclaw-plugin/             OpenClaw 插件壳
-scripts/install.ps1          Windows 安装脚本
-scripts/install.sh           Mac / Linux 安装脚本
-scripts/save_teambition_cookie.py    生成 Teambition 登录态
-runtime/                     本地运行数据，自动生成，不提交
-.venv/                       Python 虚拟环境，自动生成，不提交
+Teambition 登录态
+钉钉机器人凭证
+Hermes / OpenClaw 本机配置
 ```
 
 ## 常见问题
 
-### 安装插件后，为什么钉钉里还是只回答、不创建缺陷？
+### 为什么 Hermes 回复不像 OpenClaw？
 
-通常是 OpenClaw 没有调用插件。检查是否已经把 `docs/openclaw-tool-router-prompt.md` 配进 OpenClaw 的 Agent 提示词或工作区规则。
+通常是 Hermes 没有调用 MCP，而是模型自己回答。日志里如果看到 `tool_turns=0`，就是这个问题。
 
-### Hermes 里为什么只回答、不创建缺陷？
+稳定方案是 DingTalk 入口直通本项目 CLI，或使用 OpenClaw 插件路由。
 
-通常是 Hermes 没有调用 MCP 工具。检查 `hermes mcp test ci-defect-assistant` 是否通过，以及是否已经配置 `docs/hermes-tool-router-prompt.md`。
+### 为什么钉钉回复没有换行？
 
-### 为什么不能把 `.env` 和 `runtime/` 发给别人？
+钉钉 Markdown 需要强制换行。发送层要把 `\n` 转成 Markdown 换行：
 
-这里面有本机密钥、Cookie、Token 和运行数据，只能放在自己的机器上。
+```text
+两个空格 + 换行
+```
 
-### 别人能不能直接复用 Teambition ID？
+### 为什么“给张三创建”没有变成张三负责人？
 
-同一个 Teambition 项目和同一套缺陷表单可以复用。换项目或换表单时不建议复用，需要重新确认 ID。
+因为配置里没有张三的 Teambition 成员 ID。补到 `configs/teambition_bug_form.v1.yaml` 的 `members.by_name` 后才会生效。
 
-### 这个项目是 Skill 还是插件？
+### 为什么报 `pydantic_core` 缺失？
 
-它主要是插件和本地 CLI。Skill 更像说明书，插件和 CLI 才是真正执行 Jenkins 和 Teambition 的部分。
+通常是 Hermes 进程调用项目 CLI 时继承了 Hermes 的 Python 环境。应显式调用项目 `.venv` 的 Python，并清理 `PYTHONPATH`、`VIRTUAL_ENV`、`PYTHONHOME`。
+
+### 能不能把 `.env` 和 `runtime/` 发给别人？
+
+不能。这里面有密钥、Cookie、Token 和本机运行数据。
+
