@@ -1,11 +1,11 @@
-# OpenClaw CI Defect Assistant
+# CI Defect Assistant
 
-OpenClaw CI Defect Assistant 是一个给 OpenClaw / 钉钉使用的本地执行器。
+CI Defect Assistant 是一个给 OpenClaw / Hermes / 钉钉使用的本地执行器。
 
-它让用户可以在钉钉里用自然语言触发 Jenkins、创建 Teambition 缺陷、查询执行结果。OpenClaw 负责理解用户意图，本项目负责真正执行：权限检查、二次确认、Jenkins 调用、Teambition 调用、审计日志和结果返回。
+它让用户可以在钉钉里用自然语言触发 Jenkins、创建 Teambition 缺陷、查询执行结果。OpenClaw 或 Hermes 负责理解用户意图，本项目负责真正执行：权限检查、二次确认、Jenkins 调用、Teambition 调用、审计日志和结果返回。
 
 ```text
-钉钉 -> OpenClaw -> openclaw-ci-defect-assistant -> Jenkins / Teambition -> 钉钉回复
+钉钉 -> OpenClaw / Hermes -> ci-defect-assistant -> Jenkins / Teambition -> 钉钉回复
 ```
 
 ## 能做什么
@@ -18,21 +18,22 @@ OpenClaw CI Defect Assistant 是一个给 OpenClaw / 钉钉使用的本地执行
 
 ## 不能直接做到什么
 
-安装插件后，OpenClaw 只是多了一个可调用工具。要让 OpenClaw 主动调用这个工具，还需要把本项目提供的路由提示词配置到 OpenClaw 的 Agent 提示词或工作区规则里。
+安装插件或 MCP server 后，OpenClaw / Hermes 只是多了一个可调用工具。要让它主动调用这个工具，还需要把本项目提供的路由提示词配置到 Agent 提示词或工作区规则里。
 
-如果不配置这一步，OpenClaw 可能只会自己回答，不会真正执行 Jenkins 或创建 Teambition 缺陷。
+如果不配置这一步，Agent 可能只会自己回答，不会真正执行 Jenkins 或创建 Teambition 缺陷。
 
 路由提示词文件：
 
 ```text
 docs/openclaw-tool-router-prompt.md
+docs/hermes-tool-router-prompt.md
 ```
 
 ## 环境要求
 
 - Python 3.11+
 - Node.js / npm
-- 已安装并配置 OpenClaw
+- 已安装并配置 OpenClaw 或 Hermes
 - Windows PowerShell，或 Mac / Linux bash
 - Jenkins 访问凭证
 - Teambition 访问凭证
@@ -61,6 +62,12 @@ chmod +x scripts/install.sh
 安装脚本会自动创建 `.venv/`、`runtime/` 和 `.env`，并安装 OpenClaw 插件。
 
 插件会调用本地 CLI，所以 OpenClaw 安装插件时会要求使用 `--dangerously-force-unsafe-install` 明确确认。
+
+如果只使用 Hermes，可以跳过 OpenClaw 安装：
+
+```powershell
+.\scripts\install.ps1 -SkipOpenClawInstall
+```
 
 ### 3. 填写 `.env`
 
@@ -144,7 +151,37 @@ docs/openclaw-tool-router-prompt.md
 ci_defect_assistant_chat
 ```
 
-### 7. 重启并检查 OpenClaw
+### 7. 或者配置 Hermes MCP
+
+安装 Hermes MCP server：
+
+```powershell
+cd hermes-mcp
+npm install
+npm run build
+cd ..
+```
+
+注册到 Hermes：
+
+```powershell
+$root = (Resolve-Path .).Path
+hermes mcp add ci-defect-assistant --command node --args "$root\hermes-mcp\dist\index.js"
+```
+
+把下面文件的内容加入 Hermes 的 Agent 提示词或工作区规则：
+
+```text
+docs/hermes-tool-router-prompt.md
+```
+
+检查 Hermes 是否能看到 MCP server：
+
+```powershell
+hermes mcp test ci-defect-assistant
+```
+
+### 8. 重启并检查 OpenClaw
 
 ```powershell
 openclaw gateway restart
@@ -209,6 +246,20 @@ fields_json: 可选，OpenClaw 从用户原文里理解出的结构化字段 JSO
 - 工具返回后，只把 JSON 里的 `reply` 字段发回钉钉。
 - 不要直接调用 Jenkins 或 Teambition。
 
+## Hermes MCP 说明
+
+Hermes 通过 MCP server 调用同一个工具：
+
+```text
+ci_defect_assistant_chat
+```
+
+MCP server 只做一件事：把 Hermes 的工具调用转成现有 CLI 命令。
+
+```text
+Hermes -> hermes-mcp -> ci-defect-assistant chat -> Jenkins / Teambition
+```
+
 ## 本地验证
 
 只检查 CLI 和插件，不安装到 OpenClaw：
@@ -266,6 +317,7 @@ Mac / Linux：
 app/
 configs/
 docs/
+hermes-mcp/
 openclaw-plugin/
 scripts/
 skills/
@@ -282,6 +334,8 @@ requirements.txt
 .venv/
 runtime/
 HAR/
+hermes-mcp/node_modules/
+hermes-mcp/dist/
 openclaw-plugin/node_modules/
 openclaw-plugin/dist/
 *.har
@@ -296,6 +350,8 @@ openclaw-plugin/dist/
 app/                         Python CLI 和核心执行逻辑
 configs/                     Jenkins、用户权限、Teambition ID 配置
 docs/openclaw-tool-router-prompt.md  OpenClaw 路由提示词
+docs/hermes-tool-router-prompt.md    Hermes 路由提示词
+hermes-mcp/                  Hermes MCP server
 openclaw-plugin/             OpenClaw 插件壳
 scripts/install.ps1          Windows 安装脚本
 scripts/install.sh           Mac / Linux 安装脚本
@@ -309,6 +365,10 @@ runtime/                     本地运行数据，自动生成，不提交
 ### 安装插件后，为什么钉钉里还是只回答、不创建缺陷？
 
 通常是 OpenClaw 没有调用插件。检查是否已经把 `docs/openclaw-tool-router-prompt.md` 配进 OpenClaw 的 Agent 提示词或工作区规则。
+
+### Hermes 里为什么只回答、不创建缺陷？
+
+通常是 Hermes 没有调用 MCP 工具。检查 `hermes mcp test ci-defect-assistant` 是否通过，以及是否已经配置 `docs/hermes-tool-router-prompt.md`。
 
 ### 为什么不能把 `.env` 和 `runtime/` 发给别人？
 
