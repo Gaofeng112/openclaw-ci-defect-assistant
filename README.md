@@ -42,17 +42,15 @@ Hermes -> hermes-mcp -> ci-defect-assistant CLI
 
 只注册 MCP 不等于 Hermes 一定会调用工具。模型可能自己回答。真实钉钉场景建议使用下面的 Hermes Gateway 直通方式。
 
-### Hermes Gateway 直通
+### Hermes DingTalk 平台插件
 
-当前本机验证通过的是这个方式：
+真实钉钉场景推荐这个方式：
 
 ```text
-钉钉 -> Hermes DingTalk Gateway -> ci-defect-assistant CLI
+钉钉 -> Hermes DingTalk 用户插件 -> ci-defect-assistant CLI
 ```
 
-遇到 `tb缺陷`、`缺陷`、`提bug`、`Teambition`、`确认 xxxxxx` 这类消息时，DingTalk 入口直接调用本项目 CLI，不再让模型判断是否调用 MCP。
-
-这个直通逻辑目前是本机 Hermes 适配器改动，不在本仓库里。别人复用时，需要在自己的 Hermes 环境里做同样接入，或继续使用 OpenClaw 插件方式。
+安装 `hermes-dingtalk-bridge` 后，它会注册同名 `dingtalk` 平台，覆盖 Hermes 内置 DingTalk adapter。遇到 `tb缺陷`、`缺陷`、`提bug`、`Teambition`、`确认 xxxxxx` 这类消息时直接调用本项目 CLI；其他消息仍走 Hermes 原逻辑。
 
 ## 环境要求
 
@@ -249,6 +247,18 @@ DINGTALK_ROBOT_CODE=
 GATEWAY_ALLOW_ALL_USERS=true
 ```
 
+安装平台插件：
+
+```powershell
+.\scripts\install-hermes-dingtalk-bridge.ps1
+```
+
+检查插件：
+
+```powershell
+hermes plugins list
+```
+
 启动：
 
 ```powershell
@@ -267,6 +277,13 @@ hermes gateway status
 
 ```powershell
 hermes gateway stop
+```
+
+回退到 Hermes 原生 DingTalk：
+
+```powershell
+.\scripts\uninstall-hermes-dingtalk-bridge.ps1
+hermes gateway run --replace
 ```
 
 ## 本地验证
@@ -362,6 +379,7 @@ openclaw-plugin/dist/
 app/
 configs/
 docs/
+hermes-dingtalk-bridge/
 hermes-mcp/
 openclaw-plugin/
 scripts/
@@ -408,4 +426,3 @@ Hermes / OpenClaw 本机配置
 ### 能不能把 `.env` 和 `runtime/` 发给别人？
 
 不能。这里面有密钥、Cookie、Token 和本机运行数据。
-

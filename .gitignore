@@ -25,3 +25,5 @@ scripts/probe_*.py
 
 openclaw-plugin/node_modules/
 openclaw-plugin/dist/
+hermes-mcp/node_modules/
+hermes-mcp/dist/

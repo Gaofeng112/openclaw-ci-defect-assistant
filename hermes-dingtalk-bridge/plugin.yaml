@@ -1,0 +1,27 @@
+name: ci-defect-dingtalk-bridge
+label: CI Defect DingTalk Bridge
+kind: platform
+version: 0.1.0
+description: >
+  Overrides Hermes DingTalk platform routing for CI Defect Assistant messages.
+  Defect and confirmation messages go directly to this project's CLI; all other
+  messages keep the built-in Hermes DingTalk behavior.
+author: openclaw-ci-defect-assistant
+requires_env:
+  - name: DINGTALK_CLIENT_ID
+    description: "DingTalk app key (Client ID)"
+    prompt: "DingTalk Client ID (app key)"
+    password: false
+  - name: DINGTALK_CLIENT_SECRET
+    description: "DingTalk app secret (Client Secret)"
+    prompt: "DingTalk Client Secret"
+    password: true
+  - name: CI_DEFECT_ASSISTANT_ROOT
+    description: "Path to openclaw-ci-defect-assistant repo"
+    prompt: "CI Defect Assistant repo path"
+    password: false
+optional_env:
+  - name: DINGTALK_ROBOT_CODE
+    description: "DingTalk robot code"
+    prompt: "DingTalk robot code"
+    password: false
